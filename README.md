@@ -16,7 +16,7 @@ A custom LLM wrapper built with Flask, running local models via Ollama.
   Bash
   python app.py
 
-Project Structure
-/static: UI styling and logic.
-/templates: HTML layout.
-/instance: Local data (ignored by Git).
+## Project Structure
+* /static: UI styling and logic.
+* /templates: HTML layout.
+* /instance: Local data (ignored by Git).
