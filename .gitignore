@@ -1,13 +1,6 @@
-# Ignore Python temporary files
 __pycache__/
-*.py[cod]
-
-# Ignore your database
-joeybot.db
-instance/
-
-# Ignore your environment secrets (API keys)
-.env
-
-# Ignore random junk files
+*.pyc
+instance/semantic_memory.json
+instance/joeybot.db
+=2.0.0
 nul
