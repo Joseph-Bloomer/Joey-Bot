@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joey Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='stlye.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar" id="chat-sidebar">
+            <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
+
+            <div class="current-chat-section" id="current-chat-section">
+                <h3>Current Chat</h3>
+                <div class="chat-item unsaved active" id="current-chat-item">
+                    <span class="title">Unsaved Chat</span>
+                    <button class="save-btn" onclick="saveChat()">Save</button>
+                </div>
+            </div>
+
+            <div class="memory-section" id="memory-section" style="display: none;">
+                <h3>Memory</h3>
+                <div class="memory-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">Messages</span>
+                        <span class="stat-value" id="total-messages">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Summarized</span>
+                        <span class="stat-value" id="messages-summarized">0</span>
+                    </div>
+                </div>
+                <p class="memory-note" id="memory-note">Auto-summarizes every 10 messages</p>
+            </div>
+
+            <div class="saved-chats-section">
+                <h3>Saved Chats</h3>
+                <div id="saved-chats-list"></div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="settings-btn" onclick="showSettings()">
+                    ⚙ Settings
+                </button>
+            </div>
+        </aside>
+
+        <main class="main-content" id="chat-main">
+            <header class="header">
+                <h1>Joey Bot</h1>
+            </header>
+
+            <div id="chat-box">
+                <div class="welcome-message">
+                    <h3>Welcome to Joey Bot</h3>
+                    <p>Start a conversation below</p>
+                </div>
+            </div>
+
+            <div class="input-section">
+                <div class="input-container">
+                    <textarea id="user-input" placeholder="Message Joey Bot..." rows="1"></textarea>
+                    <button onclick="sendMessage()" id="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-footer">
+                    <div class="mode-selector">
+                        <button onclick="setMode('normal')" class="mode-btn active" id="btn-normal">
+                            Normal
+                        </button>
+                        <button onclick="setMode('concise')" class="mode-btn" id="btn-concise">
+                            Concise
+                        </button>
+                        <button onclick="setMode('logic')" class="mode-btn" id="btn-logic">
+                            Logic
+                        </button>
+                    </div>
+                    <div class="token-speed" id="token-speed">
+                        <span class="token-speed-value" id="token-speed-value">0</span>
+                        <span class="token-speed-label">tok/s</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Settings View - Hidden by default -->
+        <div class="settings-view" id="settings-view" style="display: none;">
+            <aside class="sidebar settings-sidebar">
+                <h2 class="settings-title">Settings</h2>
+
+                <nav class="settings-nav">
+                    <button class="settings-nav-item active" onclick="showSettingsSection('about')" id="nav-about">
+                        About Me
+                    </button>
+                    <button class="settings-nav-item" onclick="showSettingsSection('usage')" id="nav-usage">
+                        Usage / Tokens
+                    </button>
+                    <button class="settings-nav-item" onclick="showSettingsSection('appearance')" id="nav-appearance">
+                        Dark Mode
+                    </button>
+                    <button class="settings-nav-item" onclick="showSettingsSection('userdetails')" id="nav-userdetails">
+                        User Details
+                    </button>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <button class="back-btn" onclick="hideSettings()">
+                        ← Back to Chat
+                    </button>
+                </div>
+            </aside>
+
+            <main class="settings-content">
+                <!-- About Me Section -->
+                <section class="settings-section" id="section-about">
+                    <h2>About Me</h2>
+                    <div class="settings-card">
+                        <p class="settings-description">Information about Joey Bot.</p>
+                        <div class="about-info">
+                            <div class="about-row">
+                                <span class="about-label">Application</span>
+                                <span class="about-value">Joey Bot</span>
+                            </div>
+                            <div class="about-row">
+                                <span class="about-label">Version</span>
+                                <span class="about-value">1.0.0</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Usage Section -->
+                <section class="settings-section" id="section-usage" style="display: none;">
+                    <h2>Usage / Tokens</h2>
+                    <div class="settings-card">
+                        <p class="settings-description">Track your token usage.</p>
+                        <div class="usage-stats">
+                            <div class="usage-stat-card">
+                                <span class="usage-stat-label">Total Tokens</span>
+                                <span class="usage-stat-value" id="total-tokens-used">0</span>
+                            </div>
+                            <div class="usage-stat-card">
+                                <span class="usage-stat-label">Session Tokens</span>
+                                <span class="usage-stat-value" id="session-tokens">0</span>
+                            </div>
+                            <div class="usage-stat-card">
+                                <span class="usage-stat-label">Avg per Chat</span>
+                                <span class="usage-stat-value" id="avg-tokens-per-chat">0</span>
+                            </div>
+                            <div class="usage-stat-card">
+                                <span class="usage-stat-label">Total Chats</span>
+                                <span class="usage-stat-value" id="total-conversations">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Dark Mode Section -->
+                <section class="settings-section" id="section-appearance" style="display: none;">
+                    <h2>Dark Mode</h2>
+                    <div class="settings-card">
+                        <p class="settings-description">Customize appearance.</p>
+                        <div class="theme-toggle-container">
+                            <span class="theme-label">Dark Mode</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="dark-mode-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p class="theme-note">Functionality coming soon.</p>
+                    </div>
+                </section>
+
+                <!-- User Details Section -->
+                <section class="settings-section" id="section-userdetails" style="display: none;">
+                    <h2>User Details</h2>
+                    <div class="settings-card">
+                        <p class="settings-description">Information the AI will remember about you across all conversations.</p>
+
+                        <div class="user-profile-form">
+                            <div class="form-group">
+                                <label for="user-name">Your Name</label>
+                                <input type="text" id="user-name" placeholder="Enter your name" maxlength="100">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-details">About You <span class="word-count" id="word-count">0/125 words</span></label>
+                                <textarea id="user-details" placeholder="Tell the AI about yourself - preferences, context, anything you want it to remember..." rows="6"></textarea>
+                            </div>
+
+                            <button class="save-profile-btn" onclick="saveUserProfile()">Save Profile</button>
+                            <div class="save-status" id="save-status"></div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
