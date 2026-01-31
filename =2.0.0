@@ -1,6 +1,0 @@
-Defaulting to user installation because normal site-packages is not writeable
-Collecting numpy
-  Using cached numpy-2.4.1-cp314-cp314-win_amd64.whl.metadata (6.6 kB)
-Using cached numpy-2.4.1-cp314-cp314-win_amd64.whl (12.4 MB)
-Installing collected packages: numpy
-Successfully installed numpy-2.4.1
