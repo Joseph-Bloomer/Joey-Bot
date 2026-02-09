@@ -1,7 +1,7 @@
 """Flask application entry point for Joey-Bot."""
 
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from sqlalchemy import func
 
@@ -54,11 +54,13 @@ def chat():
     """Main chat endpoint with SSE streaming."""
     data = request.json
     return Response(
-        chat_service.generate_response(
-            message=data.get('message'),
-            conversation_id=data.get('conversation_id'),
-            mode=data.get('mode', 'normal'),
-            history=data.get('history', [])
+        stream_with_context(
+            chat_service.generate_response(
+                message=data.get('message'),
+                conversation_id=data.get('conversation_id'),
+                mode=data.get('mode', 'normal'),
+                history=data.get('history', [])
+            )
         ),
         mimetype='text/event-stream'
     )
