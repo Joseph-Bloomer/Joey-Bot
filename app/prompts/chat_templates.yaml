@@ -1,0 +1,61 @@
+fact_extraction: |
+  Extract permanent, reusable facts from this conversation for long-term memory.
+
+  MESSAGES:
+  {messages_text}
+
+  Extract ONLY:
+  - User preferences (tools, languages, frameworks they prefer)
+  - Project details (what they're building, tech stack decisions)
+  - Technical decisions and their reasoning
+  - Background info stated by the user
+  - Important milestones or achievements
+
+  DO NOT extract:
+  - Temporary states or current activities
+  - Questions or uncertainties
+  - Generic statements
+  - Things already in their profile
+
+  Format: JSON array of standalone sentences.
+  Example: ["User prefers Python for backend.", "Project uses SQLite database."]
+  Return [] if no permanent facts found.
+
+  Facts:
+
+rolling_summary: |
+  You are updating a conversation summary. Given the existing summary and new messages, create an updated summary.
+
+  EXISTING SUMMARY:
+  {existing_summary}
+
+  NEW MESSAGES TO ADD:
+  {new_messages}
+
+  Create an updated summary that:
+  - Preserves key information from existing summary
+  - Adds important new topics and decisions
+  - Stays concise (150-300 words)
+  - Prioritizes information useful for continuing the conversation
+
+  Updated summary:
+
+title_summary: |
+  Conversation:
+  {history}
+
+  Generate a JSON response with:
+  - "title": A descriptive 5-7 word title for this conversation
+  - "summary": A 2-5 sentence summary of the main topics discussed
+
+  Respond ONLY with valid JSON, no other text. Example format:
+  {{"title": "Example Title Here", "summary": "Example summary here."}}
+
+modes:
+  concise: "[Mode: Be concise. Answer in 2-3 sentences maximum.]"
+  logic: "[Mode: Think step-by-step. Show your reasoning process.]"
+
+context_prefixes:
+  user_profile: "[User Profile]: {profile}"
+  relevant_memory: "[Relevant Memory]:\n{facts}"
+  conversation_summary: "[Conversation Summary]: {summary}"
