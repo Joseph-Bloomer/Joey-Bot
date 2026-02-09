@@ -37,6 +37,9 @@ SUMMARY_MAX_WORDS = 300
 # Fact extraction
 MIN_FACT_LENGTH = 10
 
+# Embedding model filter patterns (models to exclude from chat model dropdown)
+EMBEDDING_MODEL_PATTERNS = ['nomic-embed', 'all-minilm', 'bge-', 'e5-']
+
 # Server configuration
 DEBUG = True
 PORT = 5000

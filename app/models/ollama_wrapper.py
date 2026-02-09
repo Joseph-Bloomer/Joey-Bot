@@ -1,8 +1,10 @@
 """Ollama LLM wrapper using LiteLLM for provider abstraction."""
 
-from typing import Generator, Optional, Union, List
+from typing import Generator, Optional, Union, List, Dict, Any
+import requests
 from litellm import completion, embedding
 from app.models.base import BaseLLM
+import config
 
 
 class OllamaWrapper(BaseLLM):
@@ -124,3 +126,66 @@ class OllamaWrapper(BaseLLM):
         except Exception as e:
             print(f"JSON generation error: {e}")
             return None
+
+    def list_available_models(self) -> List[Dict[str, Any]]:
+        """
+        Query Ollama for downloaded models, filter out embedding models.
+
+        Returns:
+            List of model info dicts with name, size, etc.
+        """
+        try:
+            response = requests.get(f"{self.api_base}/api/tags")
+            response.raise_for_status()
+            models = response.json().get('models', [])
+            # Filter out embedding models
+            return [m for m in models
+                    if not any(p in m['name'].lower() for p in config.EMBEDDING_MODEL_PATTERNS)]
+        except Exception as e:
+            print(f"Error listing models: {e}")
+            return []
+
+    def unload_current_model(self) -> bool:
+        """
+        Unload current model from GPU using keep_alive: 0.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            model_name = self.model.replace("ollama/", "")
+            requests.post(
+                f"{self.api_base}/api/generate",
+                json={"model": model_name, "keep_alive": 0}
+            )
+            return True
+        except Exception as e:
+            print(f"Error unloading model: {e}")
+            return False
+
+    def switch_model(self, model_name: str) -> bool:
+        """
+        Unload current model and switch to new one.
+
+        Args:
+            model_name: Name of the model to switch to (without ollama/ prefix)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self.unload_current_model()
+            self.model = f"ollama/{model_name}"
+            return True
+        except Exception as e:
+            print(f"Error switching model: {e}")
+            return False
+
+    def get_current_model(self) -> str:
+        """
+        Return current model name without ollama/ prefix.
+
+        Returns:
+            Model name string
+        """
+        return self.model.replace("ollama/", "")

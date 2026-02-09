@@ -2,6 +2,7 @@
 let currentConversationId = null;  // null = unsaved, number = saved
 let conversationHistory = [];      // in-memory history for context
 let currentMode = 'normal';
+let currentModel = null;
 
 // Store raw text for streaming messages to enable proper formatting
 const streamingRawText = {};
@@ -539,6 +540,51 @@ async function updateMemoryStats() {
     }
 }
 
+// ====================
+// Model Switching Functions
+// ====================
+
+async function loadModels() {
+    try {
+        const response = await fetch('/models');
+        const data = await response.json();
+        currentModel = data.current;
+        const select = document.getElementById('model-select');
+        select.innerHTML = data.models.map(m =>
+            `<option value="${m.name}" ${m.name === currentModel ? 'selected' : ''}>${m.name}</option>`
+        ).join('');
+    } catch (error) {
+        console.error('Error loading models:', error);
+    }
+}
+
+async function switchModel(modelName) {
+    if (modelName === currentModel) return;
+    const select = document.getElementById('model-select');
+    select.disabled = true;
+
+    try {
+        const response = await fetch('/models/switch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({model: modelName})
+        });
+        const result = await response.json();
+        if (result.success) {
+            currentModel = result.current;
+            // Start fresh chat when switching models
+            newChat();
+        } else {
+            select.value = currentModel;
+        }
+    } catch (error) {
+        console.error('Error switching model:', error);
+        select.value = currentModel;
+    } finally {
+        select.disabled = false;
+    }
+}
+
 // Initialize event listeners when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const userInput = document.getElementById('user-input');
@@ -558,6 +604,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Load available models
+    loadModels();
 
     // Load conversations list
     loadConversationsList();
