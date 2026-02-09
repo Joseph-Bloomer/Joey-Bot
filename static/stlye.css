@@ -340,6 +340,32 @@ body {
     margin-top: 12px;
 }
 
+/* Model selector - leftmost in footer */
+.model-selector {
+    display: flex;
+    align-items: center;
+    margin-right: 12px;
+}
+
+#model-select {
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 16px;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+#model-select:hover {
+    border-color: #19c37d;
+}
+
+#model-select:disabled {
+    background: #e8e8e8;
+    cursor: wait;
+}
+
 /* Mode selector - left side below input */
 .mode-selector {
     display: flex;

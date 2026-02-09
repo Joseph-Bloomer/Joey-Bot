@@ -68,6 +68,11 @@
                     </button>
                 </div>
                 <div class="input-footer">
+                    <div class="model-selector">
+                        <select id="model-select" onchange="switchModel(this.value)">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
                     <div class="mode-selector">
                         <button onclick="setMode('normal')" class="mode-btn active" id="btn-normal">
                             Normal

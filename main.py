@@ -66,6 +66,29 @@ def chat():
     )
 
 
+@app.route('/models', methods=['GET'])
+def list_models():
+    """List available Ollama models."""
+    models = llm.list_available_models()
+    current = llm.get_current_model()
+    return jsonify({'models': models, 'current': current})
+
+
+@app.route('/models/switch', methods=['POST'])
+def switch_model():
+    """Switch to a different chat model."""
+    data = request.json
+    model_name = data.get('model')
+    if not model_name:
+        return jsonify({'error': 'Model name required'}), 400
+
+    success = llm.switch_model(model_name)
+    if success:
+        logger.info(f"Switched to model: {model_name}")
+        return jsonify({'success': True, 'current': llm.get_current_model()})
+    return jsonify({'error': 'Failed to switch model'}), 500
+
+
 @app.route('/user-profile', methods=['GET'])
 def get_user_profile():
     """Get user profile details."""
