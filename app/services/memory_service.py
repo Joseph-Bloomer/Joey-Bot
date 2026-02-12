@@ -1,14 +1,13 @@
 """Semantic memory service for vector store operations and fact management."""
 
-import os
 import json
 import hashlib
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-import numpy as np
-
 from app.models.base import BaseLLM
+from app.data.vector_store import VectorStore
 from app.prompts import format_fact_extraction_prompt
 import config
 
@@ -17,7 +16,7 @@ class MemoryService:
     """
     Handles semantic memory operations (Tier 2 memory).
 
-    Manages the vector store for long-term fact storage,
+    Manages the Qdrant vector store for long-term fact storage,
     including embedding generation, deduplication, and retrieval.
     """
 
@@ -29,53 +28,18 @@ class MemoryService:
         similarity_threshold: float = None,
         results_count: int = None
     ):
-        """
-        Initialize memory service.
-
-        Args:
-            llm: LLM provider for embeddings and fact extraction
-            prompts: Loaded prompt templates
-            vector_store_path: Path to vector store JSON file
-            similarity_threshold: Threshold for duplicate detection (0.0-1.0)
-            results_count: Number of results to return from retrieval
-        """
         self.llm = llm
         self.prompts = prompts
-        self.vector_store_path = vector_store_path or config.VECTOR_STORE_PATH
         self.similarity_threshold = similarity_threshold or config.SIMILARITY_THRESHOLD
         self.results_count = results_count or config.SEMANTIC_RESULTS_COUNT
         self.enabled = config.SEMANTIC_MEMORY_ENABLED
 
-    def load_vector_store(self) -> Dict[str, Any]:
-        """Load the vector store from JSON file."""
-        if os.path.exists(self.vector_store_path):
-            try:
-                with open(self.vector_store_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Error loading vector store: {e}")
-        return {"facts": []}
-
-    def save_vector_store(self, store: Dict[str, Any]) -> None:
-        """Save the vector store to JSON file."""
-        try:
-            os.makedirs(os.path.dirname(self.vector_store_path), exist_ok=True)
-            with open(self.vector_store_path, 'w', encoding='utf-8') as f:
-                json.dump(store, f, indent=2)
-        except Exception as e:
-            print(f"Error saving vector store: {e}")
-
-    @staticmethod
-    def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-        """Compute cosine similarity between two vectors."""
-        vec1 = np.array(vec1)
-        vec2 = np.array(vec2)
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        return dot_product / (norm1 * norm2)
+        # Initialize Qdrant-backed vector store
+        self.store = VectorStore(
+            persist_dir=config.QDRANT_PERSIST_DIR,
+            collection_name=config.QDRANT_COLLECTION_NAME,
+            vector_size=config.QDRANT_VECTOR_SIZE,
+        )
 
     @staticmethod
     def normalize_fact(fact_text: str) -> str:
@@ -88,37 +52,44 @@ class MemoryService:
         normalized = MemoryService.normalize_fact(fact_text)
         return hashlib.sha256(normalized.encode()).hexdigest()
 
-    def is_duplicate_fact(
+    def _build_metadata(
         self,
-        store: Dict[str, Any],
-        new_embedding: List[float]
-    ) -> bool:
-        """Check if a similar fact already exists using cosine similarity."""
-        for fact_entry in store.get("facts", []):
-            existing_embedding = fact_entry.get("embedding")
-            if existing_embedding:
-                similarity = self.cosine_similarity(new_embedding, existing_embedding)
-                if similarity > self.similarity_threshold:
-                    return True
+        conversation_id: int,
+        message_ids: List[int],
+        importance: float = 0.5,
+    ) -> Dict[str, Any]:
+        """Build the standard metadata dict for a new memory."""
+        now = datetime.utcnow().isoformat()
+        return {
+            "memory_type": "semantic",
+            "importance": importance,
+            "created_at": now,
+            "last_accessed": now,
+            "access_count": 0,
+            "source_conversation_id": str(conversation_id) if conversation_id else "",
+            "consolidated": False,
+            "strength": importance,
+            "message_ids": json.dumps(message_ids),
+        }
+
+    def _is_duplicate(self, embedding: List[float]) -> bool:
+        """Check if a similar memory already exists via Qdrant search."""
+        if self.store.count() == 0:
+            return False
+
+        results = self.store.search(query_embedding=embedding, n_results=1)
+        if results["scores"] and results["scores"][0]:
+            # Qdrant cosine score is similarity directly (higher = more similar)
+            best_similarity = results["scores"][0][0]
+            return best_similarity > self.similarity_threshold
         return False
 
     def extract_semantic_facts(self, messages_text: str) -> List[str]:
-        """
-        Extract permanent facts from messages using LLM.
-
-        Args:
-            messages_text: Formatted messages text
-
-        Returns:
-            List of extracted fact strings
-        """
+        """Extract permanent facts from messages using LLM."""
         prompt = format_fact_extraction_prompt(self.prompts, messages_text)
-
         try:
             response = self.llm.generate_json(prompt)
             if response:
-                # Parse JSON array from response
-                import re
                 match = re.search(r'\[.*\]', response, re.DOTALL)
                 if match:
                     return json.loads(match.group())
@@ -132,23 +103,11 @@ class MemoryService:
         conversation_id: int,
         message_ids: List[int]
     ) -> int:
-        """
-        Store extracted facts with deduplication.
-
-        Args:
-            facts: List of fact strings to store
-            conversation_id: Associated conversation ID
-            message_ids: IDs of messages facts were extracted from
-
-        Returns:
-            Number of facts successfully stored
-        """
+        """Store extracted facts with deduplication."""
         if not facts:
             return 0
 
-        store = self.load_vector_store()
         stored = 0
-
         for fact in facts:
             if not fact or len(fact) < config.MIN_FACT_LENGTH:
                 continue
@@ -157,22 +116,19 @@ class MemoryService:
             if not embedding:
                 continue
 
-            if self.is_duplicate_fact(store, embedding):
+            if self._is_duplicate(embedding):
                 continue
 
             fact_id = self.compute_fact_hash(fact)
-            store["facts"].append({
-                "id": fact_id,
-                "text": fact,
-                "embedding": embedding,
-                "conversation_id": conversation_id or 0,
-                "timestamp": datetime.utcnow().isoformat(),
-                "message_ids": message_ids
-            })
-            stored += 1
+            metadata = self._build_metadata(conversation_id, message_ids)
 
-        if stored > 0:
-            self.save_vector_store(store)
+            self.store.add_memory(
+                memory_id=fact_id,
+                text=fact,
+                embedding=embedding,
+                metadata=metadata,
+            )
+            stored += 1
 
         return stored
 
@@ -182,17 +138,7 @@ class MemoryService:
         messages_text: str,
         message_ids: List[int]
     ) -> int:
-        """
-        Main entry point: extract and store facts.
-
-        Args:
-            conversation_id: Conversation ID
-            messages_text: Formatted messages for fact extraction
-            message_ids: Message IDs involved
-
-        Returns:
-            Number of facts stored
-        """
+        """Main entry point: extract and store facts."""
         if not self.enabled:
             return 0
         facts = self.extract_semantic_facts(messages_text)
@@ -205,74 +151,67 @@ class MemoryService:
         query_text: str,
         n_results: int = None
     ) -> str:
-        """
-        Retrieve semantically relevant facts from vector store.
-
-        Args:
-            query_text: Query to find relevant facts for
-            n_results: Number of results to return (default: self.results_count)
-
-        Returns:
-            Formatted string of relevant facts, or empty string
-        """
+        """Retrieve semantically relevant facts from Qdrant."""
         if not query_text or not self.enabled:
             return ''
 
         n_results = n_results or self.results_count
 
         try:
-            store = self.load_vector_store()
-            facts_list = store.get("facts", [])
-
-            if not facts_list:
+            if self.store.count() == 0:
                 return ''
 
             query_embedding = self.llm.get_embedding(query_text)
             if not query_embedding:
                 return ''
 
-            # Calculate similarity scores for all facts
-            scored_facts = []
-            for fact_entry in facts_list:
-                fact_embedding = fact_entry.get("embedding")
-                if fact_embedding:
-                    similarity = self.cosine_similarity(query_embedding, fact_embedding)
-                    scored_facts.append((similarity, fact_entry["text"]))
+            results = self.store.search(query_embedding=query_embedding, n_results=n_results)
 
-            # Sort by similarity (descending) and take top n_results
-            scored_facts.sort(key=lambda x: x[0], reverse=True)
-            top_facts = scored_facts[:n_results]
-
-            if not top_facts:
+            if not results["documents"] or not results["documents"][0]:
                 return ''
 
-            # Format as bullet points
-            return '\n'.join(f"- {fact}" for _, fact in top_facts)
+            # Update access metadata for each returned memory
+            now = datetime.utcnow().isoformat()
+            for memory_id in results["ids"][0]:
+                existing = self.store.get_memory(memory_id)
+                if existing:
+                    meta = existing["metadata"]
+                    new_count = meta.get("access_count", 0) + 1
+                    self.store.update_metadata(memory_id, {
+                        "access_count": new_count,
+                        "last_accessed": now,
+                    })
+
+            return '\n'.join(f"- {doc}" for doc in results["documents"][0])
 
         except Exception as e:
             print(f"Memory retrieval error: {e}")
             return ''
 
     def get_stats(self) -> Dict[str, Any]:
-        """
-        Get semantic memory statistics.
+        """Get semantic memory statistics from Qdrant."""
+        total = self.store.count()
 
-        Returns:
-            Dictionary with memory stats
-        """
-        store = self.load_vector_store()
-        facts = store.get("facts", [])
-
-        # Count facts by conversation
-        conversation_counts = {}
-        for fact in facts:
-            conv_id = fact.get("conversation_id", 0)
-            conversation_counts[conv_id] = conversation_counts.get(conv_id, 0) + 1
-
-        return {
+        stats = {
             'enabled': self.enabled,
-            'total_facts': len(facts),
-            'conversations_with_facts': len(conversation_counts),
+            'total_facts': total,
             'embedding_model': config.EMBEDDING_MODEL,
-            'storage_path': self.vector_store_path
+            'storage_backend': 'qdrant',
         }
+
+        if total > 0:
+            all_memories = self.store.get_all()
+            metadatas = all_memories.get("metadatas", [])
+
+            # Count by memory_type
+            type_counts = {}
+            importance_sum = 0.0
+            for meta in metadatas:
+                mtype = meta.get("memory_type", "unknown")
+                type_counts[mtype] = type_counts.get(mtype, 0) + 1
+                importance_sum += meta.get("importance", 0.0)
+
+            stats["count_by_type"] = type_counts
+            stats["avg_importance"] = round(importance_sum / total, 3)
+
+        return stats

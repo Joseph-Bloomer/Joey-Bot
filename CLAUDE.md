@@ -21,7 +21,7 @@ ollama pull nomic-embed-text      # Embedding model
 python main.py                    # Runs on http://localhost:5000
 ```
 
-The application auto-creates `instance/joeybot.db` (SQLite) and `instance/semantic_memory.json` (vector store) on first run.
+The application auto-creates `instance/joeybot.db` (SQLite) and `instance/vectordb/` (Qdrant vector store) on first run.
 
 ## Architecture
 
@@ -41,12 +41,15 @@ Joey-Bot/
 │   │   ├── chat_service.py      # Chat orchestration, context building
 │   │   └── memory_service.py    # Semantic memory, vector store ops
 │   └── data/
-│       └── database.py          # SQLAlchemy models
+│       ├── database.py          # SQLAlchemy models
+│       └── vector_store.py      # Qdrant vector store wrapper
+├── scripts/
+│   └── migrate_json_to_qdrant.py  # Migration from legacy JSON to Qdrant
 ├── utils/
 │   └── logger.py                # Logging with token tracking
 ├── static/                      # Frontend assets
 ├── templates/                   # Jinja2 templates
-└── instance/                    # Runtime data (DB, vector store)
+└── instance/                    # Runtime data (DB, vectordb/)
 ```
 
 ### Backend Services
@@ -59,13 +62,9 @@ Joey-Bot/
 - `ChatService` - Orchestrates chat: context building, streaming responses, auto-summarization
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
 
-**Data Layer (`app/data/database.py`):**
-- `Conversation` - Chat sessions with rolling summaries
-- `Message` - Individual messages with role (user/assistant)
-- `MemoryMarker` - Summarization checkpoints
-- `UserProfile` - Persistent user context (name, details)
-- `TokenUsage` - Analytics (tokens, speed, duration)
-- `ThreadView` - Multi-user/view support
+**Data Layer (`app/data/`):**
+- `database.py` - SQLAlchemy models: `Conversation`, `Message`, `MemoryMarker`, `UserProfile`, `TokenUsage`, `ThreadView`
+- `vector_store.py` - `VectorStore` class wrapping Qdrant local mode with lazy initialization. Methods: `add_memory`, `search`, `get_memory`, `update_metadata`, `delete_memory`, `get_all`, `count`. Converts SHA256 fact hashes to UUIDs for Qdrant point IDs.
 
 **Configuration (`config.py`):**
 - Model settings, thresholds, database URI, paths
@@ -79,7 +78,7 @@ Joey-Bot/
 ### Three-Tier Memory System
 
 1. **Tier 1 - Recent Messages:** Last 8 raw messages for immediate context
-2. **Tier 2 - Semantic Memory:** Vector store with fact embeddings (`nomic-embed-text`), similarity threshold 0.92, returns top 3 matches
+2. **Tier 2 - Semantic Memory:** Qdrant vector store (local mode, cosine similarity) with fact embeddings (`nomic-embed-text`, 768 dimensions), similarity threshold 0.92, returns top 3 matches. Each memory carries metadata: `memory_type`, `importance`, `access_count`, `strength`, `created_at`, `last_accessed`, `source_conversation_id`, `consolidated`.
 3. **Tier 3 - Rolling Summary:** Auto-generated 150-300 word summary after 8+ unsummarized messages
 
 ### API Endpoints (main.py)
@@ -109,11 +108,20 @@ Joey-Bot/
 
 - **Ollama API:** `http://localhost:11434/api/` for model inference and embeddings
 - **LiteLLM:** Provider abstraction layer (can switch to OpenAI, Anthropic, etc.)
+- **Qdrant:** Local-mode vector database (`qdrant-client`, no server needed). Data persisted to `instance/vectordb/`
 - **Models Required:** `gemma3:4b` (chat), `nomic-embed-text` (embeddings)
 
 ## File Notes
 
 - `static/stlye.css` - Note the typo in filename (stlye vs style)
-- `instance/semantic_memory.json` - Can grow large; contains all extracted facts with embeddings
+- `instance/vectordb/` - Qdrant persistent storage (auto-created on first run)
+- `instance/semantic_memory.json` - Legacy JSON vector store (kept as backup, no longer used at runtime)
 - `app.py.bak` - Backup of original monolithic implementation
 - `logs/` - Application logs (gitignored)
+
+## Migration
+
+To migrate existing memories from the legacy JSON format to Qdrant:
+```bash
+python scripts/migrate_json_to_qdrant.py
+```

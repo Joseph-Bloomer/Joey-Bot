@@ -1,0 +1,31 @@
+2026-02-09 19:17:09 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:17:12 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:22:56 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:22:59 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:24:26 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:24:29 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:27:21 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:27:28 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:27:47 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:27:50 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:30:08 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:30:11 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 19:30:25 | INFO     | joeybot | Token usage: 10 tokens | 2.3 tok/s | 4264ms | conv=unsaved
+2026-02-09 19:30:50 | INFO     | joeybot | Token usage: 63 tokens | 13.3 tok/s | 4720ms | conv=unsaved
+2026-02-09 19:31:12 | INFO     | joeybot | Token usage: 27 tokens | 7.2 tok/s | 3761ms | conv=unsaved
+2026-02-09 19:31:36 | INFO     | joeybot | Token usage: 29 tokens | 7.5 tok/s | 3889ms | conv=unsaved
+2026-02-09 19:31:56 | INFO     | joeybot | Token usage: 48 tokens | 10.6 tok/s | 4548ms | conv=unsaved
+2026-02-09 19:32:28 | INFO     | joeybot | Token usage: 91 tokens | 15.4 tok/s | 5925ms | conv=unsaved
+2026-02-09 19:32:59 | INFO     | joeybot | Token usage: 42 tokens | 9.3 tok/s | 4540ms | conv=unsaved
+2026-02-09 19:33:23 | INFO     | joeybot | Token usage: 70 tokens | 13.2 tok/s | 5290ms | conv=unsaved
+2026-02-09 19:34:12 | INFO     | joeybot | Token usage: 252 tokens | 23.3 tok/s | 10796ms | conv=unsaved
+2026-02-09 19:34:30 | INFO     | joeybot | Token usage: 163 tokens | 19.1 tok/s | 8523ms | conv=unsaved
+2026-02-09 19:36:19 | INFO     | joeybot | Token usage: 189 tokens | 20.1 tok/s | 9386ms | conv=unsaved
+2026-02-09 19:37:41 | INFO     | joeybot | Token usage: 134 tokens | 16.9 tok/s | 7922ms | conv=unsaved
+2026-02-09 19:39:09 | INFO     | joeybot | Token usage: 96 tokens | 14.0 tok/s | 6843ms | conv=unsaved
+2026-02-09 19:40:10 | INFO     | joeybot | Token usage: 231 tokens | 21.4 tok/s | 10816ms | conv=unsaved
+2026-02-09 19:41:21 | INFO     | joeybot | Token usage: 104 tokens | 3.9 tok/s | 26605ms | conv=2
+2026-02-09 20:18:23 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 20:18:26 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-09 20:18:43 | INFO     | joeybot | Switched to model: gemma:latest
+2026-02-09 20:18:46 | INFO     | joeybot | Switched to model: gemma3:4b
