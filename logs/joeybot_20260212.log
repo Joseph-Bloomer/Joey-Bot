@@ -12,3 +12,7 @@
 2026-02-12 01:21:52 | INFO     | joeybot | Starting Joey-Bot on port 5000
 2026-02-12 01:21:56 | INFO     | joeybot | Starting Joey-Bot on port 5000
 2026-02-12 01:23:19 | INFO     | joeybot | Token usage: 29 tokens | 0.8 tok/s | 35964ms | conv=2
+2026-02-12 01:47:24 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-12 01:47:27 | INFO     | joeybot | Starting Joey-Bot on port 5000
+2026-02-12 01:47:46 | INFO     | joeybot | Gatekeeper: NONE (conf=1.00, 7700ms)
+2026-02-12 01:47:47 | INFO     | joeybot | Token usage: 13 tokens | 1.5 tok/s | 8858ms | conv=unsaved

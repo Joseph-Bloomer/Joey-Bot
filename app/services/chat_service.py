@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Generator, Dict, Any, List, Optional
 
@@ -13,7 +14,10 @@ from app.prompts import (
     format_rolling_summary_prompt,
     format_title_summary_prompt
 )
+from utils.logger import get_logger
 import config
+
+logger = get_logger()
 
 
 class ChatService:
@@ -26,7 +30,8 @@ class ChatService:
         self,
         llm: BaseLLM,
         memory: MemoryService,
-        prompts: Dict[str, Any]
+        prompts: Dict[str, Any],
+        gatekeeper=None
     ):
         """
         Initialize chat service.
@@ -35,10 +40,12 @@ class ChatService:
             llm: LLM provider for generation
             memory: Memory service for semantic memory
             prompts: Loaded prompt templates
+            gatekeeper: Optional MemoryGatekeeper for classifying memory needs
         """
         self.llm = llm
         self.memory = memory
         self.prompts = prompts
+        self.gatekeeper = gatekeeper
 
     def get_user_profile_context(self) -> str:
         """Build user profile prefix for AI context."""
@@ -92,33 +99,52 @@ class ChatService:
         if user_context:
             context_parts.append(f"[User Profile]: {user_context}")
 
-        # 3. Long-term memory (semantic retrieval)
-        ltm = self.memory.get_relevant_facts(
-            query_text=new_message,
-            n_results=config.SEMANTIC_RESULTS_COUNT
-        )
+        # Build recent messages list early (needed for gatekeeper + context)
+        recent_msgs_dicts = []
+        if conversation_id:
+            convo = Conversation.query.get(conversation_id)
+            recent_db_msgs = Message.query.filter_by(conversation_id=conversation_id)\
+                .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
+            recent_db_msgs.reverse()
+            recent_msgs_dicts = [
+                {"role": msg.role, "content": msg.content} for msg in recent_db_msgs
+            ]
+        elif history:
+            recent_msgs_dicts = history[-config.MAX_RECENT_MESSAGES:] if len(history) > config.MAX_RECENT_MESSAGES else history
+
+        # 3. Long-term memory (gatekeeper decides if retrieval is needed)
+        ltm = None
+        if self.gatekeeper and config.GATEKEEPER_ENABLED:
+            gatekeeper_context = recent_msgs_dicts[-3:] if recent_msgs_dicts else []
+            classification = self.gatekeeper.classify(new_message, gatekeeper_context)
+
+            if classification["memory_need"] in ("SEMANTIC", "MULTI"):
+                query = " ".join(classification.get("retrieval_keys", [])) or new_message
+                ltm = self.memory.get_relevant_facts(
+                    query_text=query,
+                    n_results=config.SEMANTIC_RESULTS_COUNT
+                )
+            # NONE, RECENT, PROFILE: skip semantic retrieval
+        else:
+            # No gatekeeper — always retrieve (original behavior)
+            ltm = self.memory.get_relevant_facts(
+                query_text=new_message,
+                n_results=config.SEMANTIC_RESULTS_COUNT
+            )
+
         if ltm:
             context_parts.append(f"[Relevant Memory]:\n{ltm}")
 
         # 4 & 5: Rolling summary and recent messages
         if conversation_id:
-            convo = Conversation.query.get(conversation_id)
-
-            # Add rolling summary
             if convo and convo.rolling_summary:
                 context_parts.append(f"[Conversation Summary]: {convo.rolling_summary}")
 
-            # Get last 8 messages
-            recent_msgs = Message.query.filter_by(conversation_id=conversation_id)\
-                .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
-            recent_msgs.reverse()
-
-            for msg in recent_msgs:
-                prefix = "User" if msg.role == 'user' else "Assistant"
-                context_parts.append(f"{prefix}: {msg.content}")
+            for msg_dict in recent_msgs_dicts:
+                prefix = "User" if msg_dict['role'] == 'user' else "Assistant"
+                context_parts.append(f"{prefix}: {msg_dict['content']}")
         elif history:
-            recent = history[-config.MAX_RECENT_MESSAGES:] if len(history) > config.MAX_RECENT_MESSAGES else history
-            for msg in recent:
+            for msg in recent_msgs_dicts:
                 prefix = "User" if msg['role'] == 'user' else "Assistant"
                 context_parts.append(f"{prefix}: {msg['content']}")
 

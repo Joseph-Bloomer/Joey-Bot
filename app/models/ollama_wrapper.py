@@ -104,24 +104,28 @@ class OllamaWrapper(BaseLLM):
             print(f"Embedding error: {e}")
             return None
 
-    def generate_json(self, prompt: str) -> Optional[str]:
+    def generate_json(self, prompt: str, max_tokens: int = None) -> Optional[str]:
         """
         Generate response expecting JSON output (non-streaming).
 
         Args:
             prompt: Prompt requesting JSON output
+            max_tokens: Optional max tokens for response length
 
         Returns:
             Raw response string or None on error
         """
         try:
-            response = completion(
+            kwargs = dict(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
                 temperature=0.3,  # Lower temperature for structured output
                 api_base=self.api_base
             )
+            if max_tokens:
+                kwargs["max_tokens"] = max_tokens
+            response = completion(**kwargs)
             return response.choices[0].message.content
         except Exception as e:
             print(f"JSON generation error: {e}")

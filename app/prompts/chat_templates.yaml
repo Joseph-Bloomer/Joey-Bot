@@ -55,6 +55,24 @@ modes:
   concise: "[Mode: Be concise. Answer in 2-3 sentences maximum.]"
   logic: "[Mode: Think step-by-step. Show your reasoning process.]"
 
+memory_classification: |
+  Classify whether this message needs memory retrieval. Respond ONLY with JSON.
+
+  Categories:
+  - NONE: greetings, small talk, simple factual questions, new topics with full context provided
+  - RECENT: continuation of current topic, context is in the last few messages
+  - SEMANTIC: references to past conversations, "remember when", personal facts, callbacks to earlier topics
+  - PROFILE: asks about user preferences, name, personal details
+  - MULTI: complex queries needing both semantic search and profile data
+
+  Recent conversation:
+  {recent_context}
+
+  Current message: {user_message}
+
+  Respond with ONLY this JSON (no other text):
+  {{"memory_need": "CATEGORY", "retrieval_keys": ["key1", "key2"], "confidence": 0.0}}
+
 context_prefixes:
   user_profile: "[User Profile]: {profile}"
   relevant_memory: "[Relevant Memory]:\n{facts}"
