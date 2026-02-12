@@ -23,7 +23,12 @@ DATABASE_URI = "sqlite:///joeybot.db"
 
 # Instance path (for runtime-generated files)
 INSTANCE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
-VECTOR_STORE_PATH = os.path.join(INSTANCE_PATH, 'semantic_memory.json')
+VECTOR_STORE_PATH = os.path.join(INSTANCE_PATH, 'semantic_memory.json')  # Legacy JSON (kept for migration)
+
+# Qdrant configuration
+QDRANT_PERSIST_DIR = os.path.join(INSTANCE_PATH, 'vectordb')
+QDRANT_COLLECTION_NAME = "semantic_memory"
+QDRANT_VECTOR_SIZE = 768  # nomic-embed-text embedding dimension
 
 # Context building
 MAX_RECENT_MESSAGES = 8

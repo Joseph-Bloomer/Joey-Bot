@@ -2,5 +2,4 @@ __pycache__/
 *.pyc
 instance/semantic_memory.json
 instance/joeybot.db
-=2.0.0
-nul
+instance/vectordb/
