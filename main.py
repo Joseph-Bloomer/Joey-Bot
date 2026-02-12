@@ -9,6 +9,7 @@ from app.data.database import db, Conversation, Message, UserProfile, TokenUsage
 from app.models.ollama_wrapper import OllamaWrapper
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
+from app.services.gatekeeper import MemoryGatekeeper
 from app.prompts import load_prompts
 from utils.logger import setup_logging, get_logger, log_token_usage as log_token
 import config
@@ -36,7 +37,12 @@ llm = OllamaWrapper(
     api_base="http://localhost:11434"
 )
 memory_service = MemoryService(llm, prompts, config.VECTOR_STORE_PATH)
-chat_service = ChatService(llm, memory_service, prompts)
+gatekeeper = MemoryGatekeeper(
+    llm, prompts,
+    max_tokens=config.GATEKEEPER_MAX_TOKENS,
+    timeout=config.GATEKEEPER_TIMEOUT
+)
+chat_service = ChatService(llm, memory_service, prompts, gatekeeper=gatekeeper)
 
 
 # =============================================================================

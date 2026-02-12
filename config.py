@@ -42,6 +42,11 @@ SUMMARY_MAX_WORDS = 300
 # Fact extraction
 MIN_FACT_LENGTH = 10
 
+# Gatekeeper configuration
+GATEKEEPER_ENABLED = True
+GATEKEEPER_TIMEOUT = 3.0       # seconds
+GATEKEEPER_MAX_TOKENS = 100    # limit classification response length
+
 # Embedding model filter patterns (models to exclude from chat model dropdown)
 EMBEDDING_MODEL_PATTERNS = ['nomic-embed', 'all-minilm', 'bge-', 'e5-']
 

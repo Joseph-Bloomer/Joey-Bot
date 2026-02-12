@@ -47,12 +47,13 @@ class BaseLLM(ABC):
         pass
 
     @abstractmethod
-    def generate_json(self, prompt: str) -> Optional[str]:
+    def generate_json(self, prompt: str, max_tokens: int = None) -> Optional[str]:
         """
         Generate response expecting JSON output.
 
         Args:
             prompt: Prompt requesting JSON output
+            max_tokens: Optional max tokens for response length
 
         Returns:
             Raw response string (caller should parse JSON), or None on error

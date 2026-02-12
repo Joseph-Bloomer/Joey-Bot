@@ -64,10 +64,23 @@ def format_title_summary_prompt(prompts: Dict[str, Any], history: str) -> str:
     return prompts['title_summary'].format(history=history)
 
 
+def format_memory_classification_prompt(
+    prompts: Dict[str, Any],
+    user_message: str,
+    recent_context: str
+) -> str:
+    """Format the memory classification prompt."""
+    return prompts['memory_classification'].format(
+        user_message=user_message,
+        recent_context=recent_context
+    )
+
+
 __all__ = [
     'load_prompts',
     'get_mode_prefix',
     'format_fact_extraction_prompt',
     'format_rolling_summary_prompt',
-    'format_title_summary_prompt'
+    'format_title_summary_prompt',
+    'format_memory_classification_prompt'
 ]
