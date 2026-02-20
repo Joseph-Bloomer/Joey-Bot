@@ -73,6 +73,14 @@ memory_classification: |
   Respond with ONLY this JSON (no other text):
   {{"memory_need": "CATEGORY", "retrieval_keys": ["key1", "key2"], "confidence": 0.0}}
 
+memory_consolidation: |
+  You are a memory consolidation system. Given these related memories, create a single concise summary that captures the key information from all of them. Preserve specific facts, dates, names, and preferences. Output only the consolidated memory text, nothing else.
+
+  Memories:
+  {memories_text}
+
+  Consolidated memory:
+
 context_prefixes:
   user_profile: "[User Profile]: {profile}"
   relevant_memory: "[Relevant Memory]:\n{facts}"

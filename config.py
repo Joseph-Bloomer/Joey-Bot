@@ -45,6 +45,12 @@ MIN_FACT_LENGTH = 10
 # Reranker configuration
 RERANKER_ENABLED = True
 
+# Memory lifecycle configuration
+LIFECYCLE_ENABLED = True
+LIFECYCLE_DECAY_HOURS = 6          # Run strength decay every N hours
+LIFECYCLE_CONSOLIDATE_HOURS = 24   # Run consolidation every N hours
+LIFECYCLE_PRUNE_DAYS = 7           # Run pruning every N days
+
 # Gatekeeper configuration
 GATEKEEPER_ENABLED = True
 GATEKEEPER_TIMEOUT = 3.0       # seconds
