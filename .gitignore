@@ -3,3 +3,4 @@ __pycache__/
 instance/semantic_memory.json
 instance/joeybot.db
 instance/vectordb/
+logs/
