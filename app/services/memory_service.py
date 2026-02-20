@@ -43,8 +43,9 @@ class MemoryService:
         )
 
         # Hybrid retriever (dense + BM25 sparse search with RRF fusion)
+        # Index is built lazily on first search to avoid Qdrant file-lock
+        # conflicts with Flask's debug reloader.
         self.retriever = HybridRetriever(self.store)
-        self.retriever.build_bm25_index()
 
     @staticmethod
     def normalize_fact(fact_text: str) -> str:

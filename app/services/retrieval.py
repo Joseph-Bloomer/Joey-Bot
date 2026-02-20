@@ -21,10 +21,16 @@ class HybridRetriever:
         self._corpus_ids: List[str] = []      # BM25 position -> memory UUID
         self._corpus_texts: List[str] = []    # BM25 position -> raw text
         self._corpus_meta: List[Dict] = []    # BM25 position -> metadata
+        self._index_built = False
 
     # ------------------------------------------------------------------
     # Index management
     # ------------------------------------------------------------------
+
+    def _ensure_index(self) -> None:
+        """Lazily build the BM25 index on first use."""
+        if not self._index_built:
+            self.build_bm25_index()
 
     def build_bm25_index(self) -> None:
         """(Re)build the BM25 index from all memories in the vector store."""
@@ -38,6 +44,7 @@ class HybridRetriever:
             self._corpus_ids = []
             self._corpus_texts = []
             self._corpus_meta = []
+            self._index_built = True
             logger.info("HybridRetriever: BM25 index built (0 documents)")
             return
 
@@ -46,6 +53,7 @@ class HybridRetriever:
         self._corpus_ids = list(ids)
         self._corpus_texts = list(docs)
         self._corpus_meta = list(metas)
+        self._index_built = True
         logger.info(f"HybridRetriever: BM25 index built ({len(docs)} documents)")
 
     def add_to_index(self, memory_id: str, text: str, metadata: Dict[str, Any] = None) -> None:
@@ -81,6 +89,7 @@ class HybridRetriever:
             List of dicts, each with memory_id, text, metadata,
             dense_score, sparse_score, and fused_score.
         """
+        self._ensure_index()
         dense_results = self._dense_search(query_embedding, n_results=20, where_filter=where_filter)
         sparse_results = self._sparse_search(query_text, n_results=20)
 
