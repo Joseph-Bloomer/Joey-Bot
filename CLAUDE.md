@@ -62,8 +62,8 @@ Joey-Bot/
 - `OllamaWrapper` - LiteLLM-based implementation (easily swap to OpenAI/Anthropic)
 
 **Services (`app/services/`):**
-- `ChatOrchestrator` - 6-stage chat pipeline: CLASSIFY (gatekeeper) → RETRIEVE (hybrid search) → SCORE (reranker placeholder) → BUILD_CONTEXT (prompt assembly) → GENERATE (SSE streaming) → POST_PROCESS (access metadata + fact extraction). Each stage has isolated error handling, timing, and logging. Pipeline summary logged as `[PIPELINE] Total=...ms | classify=... | retrieve=... | ...`. Stores `_last_pipeline_ctx` for diagnostics via `get_pipeline_metadata()`.
-- `ChatService` - Prompt assembly (`build_prompt()`), LLM generation (legacy `generate_response()` wrapper), auto-summarization, conversation save. No longer owns retrieval or gatekeeper logic.
+- `ChatOrchestrator` - Manages the chat pipeline end-to-end. Receives a user message from the `/chat` route, runs it through 6 sequential stages, and yields SSE tokens. Delegates classification to `MemoryGatekeeper`, retrieval to `HybridRetriever`, prompt assembly to `ChatService.build_prompt()`, and generation to the LLM. Each stage has isolated error handling and `time.perf_counter()` timing. Exposes `get_pipeline_metadata()` for diagnostics (timings, errors, classification, candidate counts).
+- `ChatService` - Generation service: prompt assembly (`build_prompt()`), auto-summarization (`auto_summarize()`), and conversation save (`save_chat_with_metadata()`). Has a legacy `generate_response()` wrapper for backwards compat (logs a deprecation warning). No longer owns retrieval or gatekeeper logic — those moved to `ChatOrchestrator`.
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
 - `HybridRetriever` - Combines Qdrant dense vector search with BM25 keyword search, fuses results via Reciprocal Rank Fusion (k=60). BM25 index is built lazily on first search and rebuilt when new memories are stored. Logs retrieval diagnostics (dense-only, sparse-only, both).
 - `MemoryGatekeeper` - Classifies incoming messages to decide if memory retrieval is needed (NONE, RECENT, SEMANTIC, PROFILE, MULTI). Fail-open: defaults to SEMANTIC on error. Returns `retrieval_keys` passed as extra BM25 keywords.
@@ -80,6 +80,19 @@ Joey-Bot/
 - `rolling_summary` - Update conversation summaries
 - `title_summary` - Generate chat titles
 - `modes` - Concise/logic response prefixes
+
+### Pipeline Flow (`ChatOrchestrator.process_message`)
+
+The `/chat` route loads recent messages then delegates to the orchestrator, which runs 6 stages sequentially:
+
+1. **CLASSIFY** — `MemoryGatekeeper.classify()` determines memory need (NONE, RECENT, SEMANTIC, PROFILE, MULTI). If gatekeeper is disabled or errors, defaults to SEMANTIC (fail-open).
+2. **RETRIEVE** — Skipped when memory_need is NONE/RECENT/PROFILE. Otherwise builds a query from `retrieval_keys` (or falls back to the raw message), gets an embedding, and calls `HybridRetriever.search()` for top-3 candidates.
+3. **SCORE** — Passthrough placeholder. Copies candidates unchanged. Future reranker hook point.
+4. **BUILD_CONTEXT** — Assembles the LLM prompt via `ChatService.build_prompt()` from: mode prefix, user profile, memory candidates, rolling summary, recent messages, and current turn. Falls back to a minimal `"User: ...\nAssistant:"` prompt on error.
+5. **GENERATE** — Streams tokens from the LLM as SSE events (`{"token": "..."}`) and accumulates the full response. Yields `{"done": true}` at end.
+6. **POST_PROCESS** — Fire-and-forget. Updates `access_count`/`last_accessed` on retrieved memories, then extracts new facts from the exchange via `MemoryService.process_semantic_memory()`. Errors here never affect the user response.
+
+Each stage logs timing: `[CLASSIFY] SEMANTIC (conf=0.80, 2005.3ms)`, etc. A summary line is logged at the end: `[PIPELINE] Total=5200.0ms | classify=... | retrieve=... | score=... | build_context=... | generate=... | post_process=...`
 
 ### Three-Tier Memory System
 
