@@ -39,7 +39,9 @@ Joey-Bot/
 │   │   └── chat_templates.yaml  # All prompt templates
 │   ├── services/
 │   │   ├── chat_service.py      # Chat orchestration, context building
-│   │   └── memory_service.py    # Semantic memory, vector store ops
+│   │   ├── memory_service.py    # Semantic memory, vector store ops
+│   │   ├── retrieval.py         # Hybrid dense+BM25 search with RRF fusion
+│   │   └── gatekeeper.py        # Memory need classifier (skip unnecessary retrieval)
 │   └── data/
 │       ├── database.py          # SQLAlchemy models
 │       └── vector_store.py      # Qdrant vector store wrapper
@@ -61,6 +63,8 @@ Joey-Bot/
 **Services (`app/services/`):**
 - `ChatService` - Orchestrates chat: context building, streaming responses, auto-summarization
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
+- `HybridRetriever` - Combines Qdrant dense vector search with BM25 keyword search, fuses results via Reciprocal Rank Fusion (k=60). BM25 index is built lazily on first search and rebuilt when new memories are stored. Logs retrieval diagnostics (dense-only, sparse-only, both).
+- `MemoryGatekeeper` - Classifies incoming messages to decide if memory retrieval is needed (NONE, RECENT, SEMANTIC, PROFILE, MULTI). Fail-open: defaults to SEMANTIC on error. Returns `retrieval_keys` passed as extra BM25 keywords.
 
 **Data Layer (`app/data/`):**
 - `database.py` - SQLAlchemy models: `Conversation`, `Message`, `MemoryMarker`, `UserProfile`, `TokenUsage`, `ThreadView`
@@ -78,7 +82,7 @@ Joey-Bot/
 ### Three-Tier Memory System
 
 1. **Tier 1 - Recent Messages:** Last 8 raw messages for immediate context
-2. **Tier 2 - Semantic Memory:** Qdrant vector store (local mode, cosine similarity) with fact embeddings (`nomic-embed-text`, 768 dimensions), similarity threshold 0.92, returns top 3 matches. Each memory carries metadata: `memory_type`, `importance`, `access_count`, `strength`, `created_at`, `last_accessed`, `source_conversation_id`, `consolidated`.
+2. **Tier 2 - Semantic Memory:** Hybrid retrieval over Qdrant vector store. Dense search (cosine similarity, `nomic-embed-text`, 768 dims) and sparse BM25 keyword search run in parallel, fused via RRF. Similarity threshold 0.92 for deduplication, returns top 3 matches. Each memory carries metadata: `memory_type`, `importance`, `access_count`, `strength`, `created_at`, `last_accessed`, `source_conversation_id`, `consolidated`.
 3. **Tier 3 - Rolling Summary:** Auto-generated 150-300 word summary after 8+ unsummarized messages
 
 ### API Endpoints (main.py)
@@ -109,6 +113,7 @@ Joey-Bot/
 - **Ollama API:** `http://localhost:11434/api/` for model inference and embeddings
 - **LiteLLM:** Provider abstraction layer (can switch to OpenAI, Anthropic, etc.)
 - **Qdrant:** Local-mode vector database (`qdrant-client`, no server needed). Data persisted to `instance/vectordb/`
+- **rank-bm25:** BM25Okapi sparse keyword search, used alongside dense vectors in `HybridRetriever`
 - **Models Required:** `gemma3:4b` (chat), `nomic-embed-text` (embeddings)
 
 ## File Notes
