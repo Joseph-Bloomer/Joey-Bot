@@ -39,6 +39,7 @@ Joey-Bot/
 │   │   └── chat_templates.yaml  # All prompt templates
 │   ├── services/
 │   │   ├── orchestrator.py      # 6-stage chat pipeline orchestrator
+│   │   ├── reranker.py          # Heuristic scoring of retrieval candidates
 │   │   ├── chat_service.py      # Prompt assembly, LLM generation, conversation management
 │   │   ├── memory_service.py    # Semantic memory, vector store ops
 │   │   ├── retrieval.py         # Hybrid dense+BM25 search with RRF fusion
@@ -64,6 +65,7 @@ Joey-Bot/
 **Services (`app/services/`):**
 - `ChatOrchestrator` - Manages the chat pipeline end-to-end. Receives a user message from the `/chat` route, runs it through 6 sequential stages, and yields SSE tokens. Delegates classification to `MemoryGatekeeper`, retrieval to `HybridRetriever`, prompt assembly to `ChatService.build_prompt()`, and generation to the LLM. Each stage has isolated error handling and `time.perf_counter()` timing. Exposes `get_pipeline_metadata()` for diagnostics (timings, errors, classification, candidate counts).
 - `ChatService` - Generation service: prompt assembly (`build_prompt()`), auto-summarization (`auto_summarize()`), and conversation save (`save_chat_with_metadata()`). Has a legacy `generate_response()` wrapper for backwards compat (logs a deprecation warning). No longer owns retrieval or gatekeeper logic — those moved to `ChatOrchestrator`.
+- `HeuristicReranker` - Scores retrieval candidates using a weighted composite of signals already in the metadata — no LLM calls, pure computation (<1ms). Composite = retrieval_relevance (0.45) + recency (0.20) + importance (0.20) + usage (0.10) + type_boost (0.05). Recency uses exponential decay `exp(-0.03 * days_old)`. Usage caps at 5 accesses. Procedural memories get +0.10 boost, preferences +0.05. Weights stored as class attributes for easy tuning. Each scored candidate gets a `score_breakdown` dict for diagnostics.
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
 - `HybridRetriever` - Combines Qdrant dense vector search with BM25 keyword search, fuses results via Reciprocal Rank Fusion (k=60). BM25 index is built lazily on first search and rebuilt when new memories are stored. Logs retrieval diagnostics (dense-only, sparse-only, both).
 - `MemoryGatekeeper` - Classifies incoming messages to decide if memory retrieval is needed (NONE, RECENT, SEMANTIC, PROFILE, MULTI). Fail-open: defaults to SEMANTIC on error. Returns `retrieval_keys` passed as extra BM25 keywords.
@@ -87,7 +89,7 @@ The `/chat` route loads recent messages then delegates to the orchestrator, whic
 
 1. **CLASSIFY** — `MemoryGatekeeper.classify()` determines memory need (NONE, RECENT, SEMANTIC, PROFILE, MULTI). If gatekeeper is disabled or errors, defaults to SEMANTIC (fail-open).
 2. **RETRIEVE** — Skipped when memory_need is NONE/RECENT/PROFILE. Otherwise builds a query from `retrieval_keys` (or falls back to the raw message), gets an embedding, and calls `HybridRetriever.search()` for top-3 candidates.
-3. **SCORE** — Passthrough placeholder. Copies candidates unchanged. Future reranker hook point.
+3. **SCORE** — `HeuristicReranker.rerank()` scores each candidate with a weighted composite (retrieval relevance 0.45, recency 0.20, importance 0.20, usage 0.10, type boost 0.05), sorts descending, and trims to top-k. Logs per-candidate breakdowns. Falls back to passthrough if `RERANKER_ENABLED=False` or on error.
 4. **BUILD_CONTEXT** — Assembles the LLM prompt via `ChatService.build_prompt()` from: mode prefix, user profile, memory candidates, rolling summary, recent messages, and current turn. Falls back to a minimal `"User: ...\nAssistant:"` prompt on error.
 5. **GENERATE** — Streams tokens from the LLM as SSE events (`{"token": "..."}`) and accumulates the full response. Yields `{"done": true}` at end.
 6. **POST_PROCESS** — Fire-and-forget. Updates `access_count`/`last_accessed` on retrieved memories, then extracts new facts from the exchange via `MemoryService.process_semantic_memory()`. Errors here never affect the user response.
