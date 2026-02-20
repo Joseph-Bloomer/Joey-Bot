@@ -40,6 +40,7 @@ Joey-Bot/
 │   ├── services/
 │   │   ├── orchestrator.py      # 6-stage chat pipeline orchestrator
 │   │   ├── reranker.py          # Heuristic scoring of retrieval candidates
+│   │   ├── memory_lifecycle.py  # Background maintenance: decay, consolidation, pruning
 │   │   ├── chat_service.py      # Prompt assembly, LLM generation, conversation management
 │   │   ├── memory_service.py    # Semantic memory, vector store ops
 │   │   ├── retrieval.py         # Hybrid dense+BM25 search with RRF fusion
@@ -66,6 +67,7 @@ Joey-Bot/
 - `ChatOrchestrator` - Manages the chat pipeline end-to-end. Receives a user message from the `/chat` route, runs it through 6 sequential stages, and yields SSE tokens. Delegates classification to `MemoryGatekeeper`, retrieval to `HybridRetriever`, prompt assembly to `ChatService.build_prompt()`, and generation to the LLM. Each stage has isolated error handling and `time.perf_counter()` timing. Exposes `get_pipeline_metadata()` for diagnostics (timings, errors, classification, candidate counts).
 - `ChatService` - Generation service: prompt assembly (`build_prompt()`), auto-summarization (`auto_summarize()`), and conversation save (`save_chat_with_metadata()`). Has a legacy `generate_response()` wrapper for backwards compat (logs a deprecation warning). No longer owns retrieval or gatekeeper logic — those moved to `ChatOrchestrator`.
 - `HeuristicReranker` - Scores retrieval candidates using a weighted composite of signals already in the metadata — no LLM calls, pure computation (<1ms). Composite = retrieval_relevance (0.45) + recency (0.20) + importance (0.20) + usage (0.10) + type_boost (0.05). Recency uses exponential decay `exp(-0.03 * days_old)`. Usage caps at 5 accesses. Procedural memories get +0.10 boost, preferences +0.05. Weights stored as class attributes for easy tuning. Each scored candidate gets a `score_breakdown` dict for diagnostics.
+- `MemoryLifecycle` - Background maintenance for semantic memories (never runs during chat). Three operations on schedules: **Strength decay** (every 6h) recalculates strength = importance(0.40) + recency(0.35) + access(0.25) where recency = exp(-0.05 * days_old). **Consolidation** (every 24h) clusters weak memories (strength < 0.3) by cosine similarity > 0.8, merges clusters of 3+ via LLM into a single consolidated memory, marks originals. Procedural memories are never consolidated. **Pruning** (weekly) deletes consolidated originals with strength < 0.1 and never-accessed memories with strength < 0.05. Protects procedural and high-importance (>= 0.9) memories. Manual trigger via `POST /memory-lifecycle` with action: decay/consolidate/prune/full.
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
 - `HybridRetriever` - Combines Qdrant dense vector search with BM25 keyword search, fuses results via Reciprocal Rank Fusion (k=60). BM25 index is built lazily on first search and rebuilt when new memories are stored. Logs retrieval diagnostics (dense-only, sparse-only, both).
 - `MemoryGatekeeper` - Classifies incoming messages to decide if memory retrieval is needed (NONE, RECENT, SEMANTIC, PROFILE, MULTI). Fail-open: defaults to SEMANTIC on error. Returns `retrieval_keys` passed as extra BM25 keywords.
@@ -81,6 +83,7 @@ Joey-Bot/
 - `fact_extraction` - Extract permanent facts from conversations
 - `rolling_summary` - Update conversation summaries
 - `title_summary` - Generate chat titles
+- `memory_consolidation` - Merge related weak memories into one
 - `modes` - Concise/logic response prefixes
 
 ### Pipeline Flow (`ChatOrchestrator.process_message`)
@@ -109,7 +112,8 @@ Each stage logs timing: `[CLASSIFY] SEMANTIC (conf=0.80, 2005.3ms)`, etc. A summ
 - `GET/DELETE /conversation/<id>` - Conversation CRUD
 - `POST /save-chat` - Save with AI-generated title/summary
 - `POST /message` - Save message, triggers auto-summarization
-- `GET /semantic-memory-stats` - Vector store statistics
+- `GET /semantic-memory-stats` - Vector store statistics (includes strength tiers, consolidated count)
+- `POST /memory-lifecycle` - Manual lifecycle trigger (action: decay/consolidate/prune/full)
 - `GET /usage-stats` - Token usage analytics
 
 ### Frontend (static/script.js, templates/index.html)
@@ -131,6 +135,7 @@ Each stage logs timing: `[CLASSIFY] SEMANTIC (conf=0.80, 2005.3ms)`, etc. A summ
 - **LiteLLM:** Provider abstraction layer (can switch to OpenAI, Anthropic, etc.)
 - **Qdrant:** Local-mode vector database (`qdrant-client`, no server needed). Data persisted to `instance/vectordb/`
 - **rank-bm25:** BM25Okapi sparse keyword search, used alongside dense vectors in `HybridRetriever`
+- **APScheduler:** Background task scheduling for memory lifecycle (decay every 6h, consolidation every 24h, pruning weekly)
 - **Models Required:** `gemma3:4b` (chat), `nomic-embed-text` (embeddings)
 
 ## File Notes
