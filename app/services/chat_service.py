@@ -119,10 +119,12 @@ class ChatService:
             classification = self.gatekeeper.classify(new_message, gatekeeper_context)
 
             if classification["memory_need"] in ("SEMANTIC", "MULTI"):
-                query = " ".join(classification.get("retrieval_keys", [])) or new_message
+                retrieval_keys = classification.get("retrieval_keys", [])
+                query = " ".join(retrieval_keys) or new_message
                 ltm = self.memory.get_relevant_facts(
                     query_text=query,
-                    n_results=config.SEMANTIC_RESULTS_COUNT
+                    n_results=config.SEMANTIC_RESULTS_COUNT,
+                    extra_keywords=retrieval_keys,
                 )
             # NONE, RECENT, PROFILE: skip semantic retrieval
         else:

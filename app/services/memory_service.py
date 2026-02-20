@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 
 from app.models.base import BaseLLM
 from app.data.vector_store import VectorStore
+from app.services.retrieval import HybridRetriever
 from app.prompts import format_fact_extraction_prompt
 import config
 
@@ -40,6 +41,10 @@ class MemoryService:
             collection_name=config.QDRANT_COLLECTION_NAME,
             vector_size=config.QDRANT_VECTOR_SIZE,
         )
+
+        # Hybrid retriever (dense + BM25 sparse search with RRF fusion)
+        self.retriever = HybridRetriever(self.store)
+        self.retriever.build_bm25_index()
 
     @staticmethod
     def normalize_fact(fact_text: str) -> str:
@@ -130,6 +135,10 @@ class MemoryService:
             )
             stored += 1
 
+        # Rebuild BM25 index once after all new facts are stored
+        if stored > 0:
+            self.retriever.add_to_index("", "")
+
         return stored
 
     def process_semantic_memory(
@@ -149,9 +158,17 @@ class MemoryService:
     def get_relevant_facts(
         self,
         query_text: str,
-        n_results: int = None
+        n_results: int = None,
+        extra_keywords: List[str] = None,
     ) -> str:
-        """Retrieve semantically relevant facts from Qdrant."""
+        """Retrieve relevant facts using hybrid dense + BM25 search.
+
+        Args:
+            query_text: The query to search for.
+            n_results: Max number of results.
+            extra_keywords: Additional keyword terms (e.g. gatekeeper retrieval_keys)
+                            appended to the BM25 query for better keyword coverage.
+        """
         if not query_text or not self.enabled:
             return ''
 
@@ -165,24 +182,33 @@ class MemoryService:
             if not query_embedding:
                 return ''
 
-            results = self.store.search(query_embedding=query_embedding, n_results=n_results)
+            # Append extra keywords to give BM25 more signal
+            bm25_query = query_text
+            if extra_keywords:
+                bm25_query = query_text + " " + " ".join(extra_keywords)
 
-            if not results["documents"] or not results["documents"][0]:
+            results = self.retriever.search(
+                query_text=bm25_query,
+                query_embedding=query_embedding,
+                n_results=n_results,
+            )
+
+            if not results:
                 return ''
 
             # Update access metadata for each returned memory
             now = datetime.utcnow().isoformat()
-            for memory_id in results["ids"][0]:
-                existing = self.store.get_memory(memory_id)
+            for r in results:
+                existing = self.store.get_memory(r["memory_id"])
                 if existing:
                     meta = existing["metadata"]
                     new_count = meta.get("access_count", 0) + 1
-                    self.store.update_metadata(memory_id, {
+                    self.store.update_metadata(r["memory_id"], {
                         "access_count": new_count,
                         "last_accessed": now,
                     })
 
-            return '\n'.join(f"- {doc}" for doc in results["documents"][0])
+            return '\n'.join(f"- {r['text']}" for r in results)
 
         except Exception as e:
             print(f"Memory retrieval error: {e}")
