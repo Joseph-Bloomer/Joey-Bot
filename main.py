@@ -12,6 +12,7 @@ from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
 from app.services.orchestrator import ChatOrchestrator
 from app.services.reranker import HeuristicReranker
+from app.services.memory_lifecycle import MemoryLifecycle, get_last_lifecycle_run
 from app.prompts import load_prompts
 from utils.logger import setup_logging, get_logger, log_token_usage as log_token
 import config
@@ -53,6 +54,45 @@ orchestrator = ChatOrchestrator(
     memory_service=memory_service,
     reranker=reranker,
 )
+lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_service)
+
+
+# =============================================================================
+# Background scheduler (memory lifecycle)
+# =============================================================================
+
+def _run_lifecycle_task(task_name, task_func):
+    """Run a lifecycle task inside the Flask app context."""
+    with app.app_context():
+        logger.info(f"[SCHEDULER] Running {task_name}")
+        try:
+            result = task_func()
+            logger.info(f"[SCHEDULER] {task_name} complete: {result}")
+        except Exception as e:
+            logger.warning(f"[SCHEDULER] {task_name} error: {e}")
+
+if config.LIFECYCLE_ENABLED:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(
+        lambda: _run_lifecycle_task("decay", lifecycle.decay_all_strengths),
+        "interval", hours=config.LIFECYCLE_DECAY_HOURS, id="lifecycle_decay",
+    )
+    scheduler.add_job(
+        lambda: _run_lifecycle_task("consolidate", lifecycle.consolidate),
+        "interval", hours=config.LIFECYCLE_CONSOLIDATE_HOURS, id="lifecycle_consolidate",
+    )
+    scheduler.add_job(
+        lambda: _run_lifecycle_task("prune", lifecycle.prune),
+        "interval", days=config.LIFECYCLE_PRUNE_DAYS, id="lifecycle_prune",
+    )
+    scheduler.start()
+    logger.info(
+        f"[SCHEDULER] Memory lifecycle enabled: "
+        f"decay={config.LIFECYCLE_DECAY_HOURS}h, "
+        f"consolidate={config.LIFECYCLE_CONSOLIDATE_HOURS}h, "
+        f"prune={config.LIFECYCLE_PRUNE_DAYS}d"
+    )
 
 
 # =============================================================================
@@ -200,8 +240,59 @@ def get_usage_stats():
 
 @app.route('/semantic-memory-stats', methods=['GET'])
 def get_semantic_memory_stats():
-    """Get semantic memory (Tier 2) statistics."""
-    return jsonify(memory_service.get_stats())
+    """Get semantic memory (Tier 2) statistics with strength tiers."""
+    stats = memory_service.get_stats()
+
+    # Add strength tier counts and consolidated count
+    if stats.get('total_facts', 0) > 0:
+        all_memories = memory_service.store.get_all()
+        metadatas = all_memories.get("metadatas", [])
+
+        strong = medium = weak = consolidated_count = 0
+        for meta in metadatas:
+            s = float(meta.get("strength", 0.5))
+            if s > 0.7:
+                strong += 1
+            elif s >= 0.3:
+                medium += 1
+            else:
+                weak += 1
+            if meta.get("consolidated"):
+                consolidated_count += 1
+
+        stats["strength_tiers"] = {
+            "strong": strong,
+            "medium": medium,
+            "weak": weak,
+        }
+        stats["consolidated_count"] = consolidated_count
+
+    stats["last_lifecycle_run"] = get_last_lifecycle_run()
+    return jsonify(stats)
+
+
+@app.route('/memory-lifecycle', methods=['POST'])
+def run_memory_lifecycle():
+    """Manual trigger for memory lifecycle operations."""
+    data = request.json or {}
+    action = data.get('action', 'full')
+
+    actions = {
+        'decay': lifecycle.decay_all_strengths,
+        'consolidate': lifecycle.consolidate,
+        'prune': lifecycle.prune,
+        'full': lifecycle.run_full_cycle,
+    }
+
+    if action not in actions:
+        return jsonify({'error': f'Unknown action: {action}. Use: {list(actions.keys())}'}), 400
+
+    try:
+        result = actions[action]()
+        return jsonify({'action': action, 'result': result})
+    except Exception as e:
+        logger.warning(f"[LIFECYCLE] Manual {action} error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/conversations', methods=['GET'])
