@@ -42,6 +42,9 @@ SUMMARY_MAX_WORDS = 300
 # Fact extraction
 MIN_FACT_LENGTH = 10
 
+# Reranker configuration
+RERANKER_ENABLED = True
+
 # Gatekeeper configuration
 GATEKEEPER_ENABLED = True
 GATEKEEPER_TIMEOUT = 3.0       # seconds

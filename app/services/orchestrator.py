@@ -18,7 +18,7 @@ class ChatOrchestrator:
     Orchestrates the chat pipeline through 6 sequential stages:
       1. CLASSIFY  — gatekeeper decides if memory retrieval is needed
       2. RETRIEVE  — hybrid dense + BM25 search
-      3. SCORE     — reranker placeholder (passthrough)
+      3. SCORE     — heuristic reranker (or passthrough if disabled)
       4. BUILD_CONTEXT — assemble the LLM prompt
       5. GENERATE  — stream tokens via SSE
       6. POST_PROCESS — update access metadata, extract facts
@@ -30,7 +30,7 @@ class ChatOrchestrator:
         self.retriever = retriever
         self.chat_service = chat_service
         self.memory_service = memory_service
-        self.reranker = reranker      # Phase 5 placeholder
+        self.reranker = reranker      # HeuristicReranker instance (or None)
         self.compressor = compressor  # Future placeholder
         self._last_pipeline_ctx: Optional[Dict[str, Any]] = None
 
@@ -174,18 +174,59 @@ class ChatOrchestrator:
         logger.info(f"[RETRIEVE] {len(ctx['candidates'])} candidates ({elapsed:.1f}ms)")
 
     # ------------------------------------------------------------------
-    # Stage 3: SCORE (passthrough placeholder)
+    # Stage 3: SCORE (heuristic reranker)
     # ------------------------------------------------------------------
 
     def _stage_score(self, ctx: Dict[str, Any]) -> None:
         t0 = time.perf_counter()
+        candidates = ctx["candidates"]
 
-        # Phase 5: Heuristic reranker will be inserted here
-        if self.reranker is not None:
-            pass  # future hook point
+        if not candidates:
+            ctx["scored_candidates"] = []
+            elapsed = (time.perf_counter() - t0) * 1000
+            ctx["timings"]["score"] = elapsed
+            logger.info(f"[SCORE] no candidates to score ({elapsed:.1f}ms)")
+            return
 
-        ctx["scored_candidates"] = list(ctx["candidates"])
+        if self.reranker is not None and config.RERANKER_ENABLED:
+            try:
+                before_count = len(candidates)
+                scored = self.reranker.rerank(
+                    candidates,
+                    query_context={},
+                    top_k=config.SEMANTIC_RESULTS_COUNT,
+                )
+                after_count = len(scored)
+                ctx["scored_candidates"] = scored
 
+                # Log per-candidate breakdown
+                for c in scored:
+                    bd = c.get("score_breakdown", {})
+                    logger.info(
+                        f"[SCORE]   {c['text'][:50]}... "
+                        f"composite={bd.get('composite', 0):.3f} "
+                        f"(rel={bd.get('retrieval_relevance', 0):.2f} "
+                        f"rec={bd.get('recency', 0):.2f} "
+                        f"imp={bd.get('importance', 0):.2f} "
+                        f"use={bd.get('usage', 0):.2f} "
+                        f"type={bd.get('type_boost', 0):.2f})"
+                    )
+
+                dropped = before_count - after_count
+                if dropped > 0:
+                    logger.info(f"[SCORE] dropped {dropped} low-scoring candidates")
+
+                elapsed = (time.perf_counter() - t0) * 1000
+                ctx["timings"]["score"] = elapsed
+                logger.info(f"[SCORE] reranked {before_count}→{after_count} ({elapsed:.1f}ms)")
+                return
+
+            except Exception as e:
+                ctx["errors"].append({"stage": "SCORE", "error": str(e), "fallback": "passthrough"})
+                logger.warning(f"[SCORE] Reranker error: {e}, falling through to passthrough")
+
+        # Passthrough fallback
+        ctx["scored_candidates"] = list(candidates)
         elapsed = (time.perf_counter() - t0) * 1000
         ctx["timings"]["score"] = elapsed
         logger.info(f"[SCORE] passthrough ({elapsed:.1f}ms)")

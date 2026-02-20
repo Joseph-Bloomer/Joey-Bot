@@ -11,6 +11,7 @@ from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
 from app.services.orchestrator import ChatOrchestrator
+from app.services.reranker import HeuristicReranker
 from app.prompts import load_prompts
 from utils.logger import setup_logging, get_logger, log_token_usage as log_token
 import config
@@ -44,11 +45,13 @@ gatekeeper = MemoryGatekeeper(
     timeout=config.GATEKEEPER_TIMEOUT
 )
 chat_service = ChatService(llm, memory_service, prompts)
+reranker = HeuristicReranker()
 orchestrator = ChatOrchestrator(
     gatekeeper=gatekeeper,
     retriever=memory_service.retriever,
     chat_service=chat_service,
     memory_service=memory_service,
+    reranker=reranker,
 )
 
 
