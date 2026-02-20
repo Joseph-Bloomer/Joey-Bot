@@ -38,7 +38,8 @@ Joey-Bot/
 │   ├── prompts/
 │   │   └── chat_templates.yaml  # All prompt templates
 │   ├── services/
-│   │   ├── chat_service.py      # Chat orchestration, context building
+│   │   ├── orchestrator.py      # 6-stage chat pipeline orchestrator
+│   │   ├── chat_service.py      # Prompt assembly, LLM generation, conversation management
 │   │   ├── memory_service.py    # Semantic memory, vector store ops
 │   │   ├── retrieval.py         # Hybrid dense+BM25 search with RRF fusion
 │   │   └── gatekeeper.py        # Memory need classifier (skip unnecessary retrieval)
@@ -61,7 +62,8 @@ Joey-Bot/
 - `OllamaWrapper` - LiteLLM-based implementation (easily swap to OpenAI/Anthropic)
 
 **Services (`app/services/`):**
-- `ChatService` - Orchestrates chat: context building, streaming responses, auto-summarization
+- `ChatOrchestrator` - 6-stage chat pipeline: CLASSIFY (gatekeeper) → RETRIEVE (hybrid search) → SCORE (reranker placeholder) → BUILD_CONTEXT (prompt assembly) → GENERATE (SSE streaming) → POST_PROCESS (access metadata + fact extraction). Each stage has isolated error handling, timing, and logging. Pipeline summary logged as `[PIPELINE] Total=...ms | classify=... | retrieve=... | ...`. Stores `_last_pipeline_ctx` for diagnostics via `get_pipeline_metadata()`.
+- `ChatService` - Prompt assembly (`build_prompt()`), LLM generation (legacy `generate_response()` wrapper), auto-summarization, conversation save. No longer owns retrieval or gatekeeper logic.
 - `MemoryService` - Vector store operations, fact extraction, semantic retrieval
 - `HybridRetriever` - Combines Qdrant dense vector search with BM25 keyword search, fuses results via Reciprocal Rank Fusion (k=60). BM25 index is built lazily on first search and rebuilt when new memories are stored. Logs retrieval diagnostics (dense-only, sparse-only, both).
 - `MemoryGatekeeper` - Classifies incoming messages to decide if memory retrieval is needed (NONE, RECENT, SEMANTIC, PROFILE, MULTI). Fail-open: defaults to SEMANTIC on error. Returns `retrieval_keys` passed as extra BM25 keywords.

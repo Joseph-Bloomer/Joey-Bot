@@ -10,6 +10,7 @@ from app.models.ollama_wrapper import OllamaWrapper
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
+from app.services.orchestrator import ChatOrchestrator
 from app.prompts import load_prompts
 from utils.logger import setup_logging, get_logger, log_token_usage as log_token
 import config
@@ -42,7 +43,13 @@ gatekeeper = MemoryGatekeeper(
     max_tokens=config.GATEKEEPER_MAX_TOKENS,
     timeout=config.GATEKEEPER_TIMEOUT
 )
-chat_service = ChatService(llm, memory_service, prompts, gatekeeper=gatekeeper)
+chat_service = ChatService(llm, memory_service, prompts)
+orchestrator = ChatOrchestrator(
+    gatekeeper=gatekeeper,
+    retriever=memory_service.retriever,
+    chat_service=chat_service,
+    memory_service=memory_service,
+)
 
 
 # =============================================================================
@@ -57,15 +64,30 @@ def home():
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    """Main chat endpoint with SSE streaming."""
+    """Main chat endpoint with SSE streaming via orchestrator pipeline."""
     data = request.json
+    conversation_id = data.get('conversation_id')
+    history = data.get('history', [])
+
+    # Load recent messages from DB or in-memory history
+    recent_messages = []
+    if conversation_id:
+        recent_db_msgs = Message.query.filter_by(conversation_id=conversation_id)\
+            .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
+        recent_db_msgs.reverse()
+        recent_messages = [
+            {"role": msg.role, "content": msg.content} for msg in recent_db_msgs
+        ]
+    elif history:
+        recent_messages = history[-config.MAX_RECENT_MESSAGES:]
+
     return Response(
         stream_with_context(
-            chat_service.generate_response(
-                message=data.get('message'),
-                conversation_id=data.get('conversation_id'),
+            orchestrator.process_message(
+                user_message=data.get('message'),
+                conversation_id=conversation_id,
+                recent_messages=recent_messages,
                 mode=data.get('mode', 'normal'),
-                history=data.get('history', [])
             )
         ),
         mimetype='text/event-stream'

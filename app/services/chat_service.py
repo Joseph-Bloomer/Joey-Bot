@@ -2,7 +2,6 @@
 
 import json
 import re
-import time
 from datetime import datetime
 from typing import Generator, Dict, Any, List, Optional
 
@@ -22,8 +21,9 @@ logger = get_logger()
 
 class ChatService:
     """
-    Orchestrates chat operations including context building,
-    response generation, and conversation management.
+    Handles LLM generation, prompt assembly, and conversation management.
+
+    Retrieval and gatekeeper logic has moved to ChatOrchestrator.
     """
 
     def __init__(
@@ -31,21 +31,10 @@ class ChatService:
         llm: BaseLLM,
         memory: MemoryService,
         prompts: Dict[str, Any],
-        gatekeeper=None
     ):
-        """
-        Initialize chat service.
-
-        Args:
-            llm: LLM provider for generation
-            memory: Memory service for semantic memory
-            prompts: Loaded prompt templates
-            gatekeeper: Optional MemoryGatekeeper for classifying memory needs
-        """
         self.llm = llm
         self.memory = memory
         self.prompts = prompts
-        self.gatekeeper = gatekeeper
 
     def get_user_profile_context(self) -> str:
         """Build user profile prefix for AI context."""
@@ -60,101 +49,41 @@ class ChatService:
             parts.append(f'About the user: {profile.details}')
         return ' '.join(parts) + '\n\n'
 
-    def build_context(
+    def build_prompt(
         self,
-        conversation_id: Optional[int],
-        new_message: str,
-        mode: str = 'normal',
-        history: List[Dict[str, str]] = None
+        mode_prefix: str,
+        user_profile: str,
+        memories: str,
+        rolling_summary: str,
+        recent_history: str,
+        current_turn: str,
     ) -> str:
         """
-        Build context using tiered memory system.
+        Assemble the LLM prompt from pre-built parts.
 
-        Tiers:
-        1. Tonality prefix (if mode != normal)
-        2. User Profile
-        3. Long-term memory (semantic retrieval)
-        4. Rolling conversation summary
-        5. Last 8 raw messages
-        6. Current user message
-
-        Args:
-            conversation_id: ID of saved conversation (or None)
-            new_message: Current user message
-            mode: Response mode (normal, concise, logic)
-            history: In-memory history for unsaved chats
-
-        Returns:
-            Assembled context string
+        Called by ChatOrchestrator after retrieval is complete.
+        Pure string assembly — no DB queries, no retrieval.
         """
-        context_parts = []
+        parts = []
 
-        # 1. Tonality prefix
-        mode_prefix = get_mode_prefix(self.prompts, mode)
         if mode_prefix:
-            context_parts.append(mode_prefix)
+            parts.append(mode_prefix)
 
-        # 2. User Profile
-        user_context = self.get_user_profile_context()
-        if user_context:
-            context_parts.append(f"[User Profile]: {user_context}")
+        if user_profile:
+            parts.append(f"[User Profile]: {user_profile}")
 
-        # Build recent messages list early (needed for gatekeeper + context)
-        recent_msgs_dicts = []
-        if conversation_id:
-            convo = Conversation.query.get(conversation_id)
-            recent_db_msgs = Message.query.filter_by(conversation_id=conversation_id)\
-                .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
-            recent_db_msgs.reverse()
-            recent_msgs_dicts = [
-                {"role": msg.role, "content": msg.content} for msg in recent_db_msgs
-            ]
-        elif history:
-            recent_msgs_dicts = history[-config.MAX_RECENT_MESSAGES:] if len(history) > config.MAX_RECENT_MESSAGES else history
+        if memories:
+            parts.append(f"[Relevant Memory]:\n{memories}")
 
-        # 3. Long-term memory (gatekeeper decides if retrieval is needed)
-        ltm = None
-        if self.gatekeeper and config.GATEKEEPER_ENABLED:
-            gatekeeper_context = recent_msgs_dicts[-3:] if recent_msgs_dicts else []
-            classification = self.gatekeeper.classify(new_message, gatekeeper_context)
+        if rolling_summary:
+            parts.append(f"[Conversation Summary]: {rolling_summary}")
 
-            if classification["memory_need"] in ("SEMANTIC", "MULTI"):
-                retrieval_keys = classification.get("retrieval_keys", [])
-                query = " ".join(retrieval_keys) or new_message
-                ltm = self.memory.get_relevant_facts(
-                    query_text=query,
-                    n_results=config.SEMANTIC_RESULTS_COUNT,
-                    extra_keywords=retrieval_keys,
-                )
-            # NONE, RECENT, PROFILE: skip semantic retrieval
-        else:
-            # No gatekeeper — always retrieve (original behavior)
-            ltm = self.memory.get_relevant_facts(
-                query_text=new_message,
-                n_results=config.SEMANTIC_RESULTS_COUNT
-            )
+        if recent_history:
+            parts.append(recent_history)
 
-        if ltm:
-            context_parts.append(f"[Relevant Memory]:\n{ltm}")
+        parts.append(current_turn)
 
-        # 4 & 5: Rolling summary and recent messages
-        if conversation_id:
-            if convo and convo.rolling_summary:
-                context_parts.append(f"[Conversation Summary]: {convo.rolling_summary}")
-
-            for msg_dict in recent_msgs_dicts:
-                prefix = "User" if msg_dict['role'] == 'user' else "Assistant"
-                context_parts.append(f"{prefix}: {msg_dict['content']}")
-        elif history:
-            for msg in recent_msgs_dicts:
-                prefix = "User" if msg['role'] == 'user' else "Assistant"
-                context_parts.append(f"{prefix}: {msg['content']}")
-
-        # 6. Current message
-        context_parts.append(f"User: {new_message}")
-        context_parts.append("Assistant:")
-
-        return "\n".join(context_parts)
+        return "\n".join(parts)
 
     def generate_response(
         self,
@@ -164,29 +93,41 @@ class ChatService:
         history: List[Dict[str, str]] = None
     ) -> Generator[str, None, None]:
         """
-        Generate streaming response for a chat message.
+        Legacy wrapper — generates a streaming response without the orchestrator.
 
-        Args:
-            message: User message
-            conversation_id: Conversation ID (or None for unsaved)
-            mode: Response mode
-            history: In-memory history for unsaved chats
-
-        Yields:
-            SSE-formatted data strings with tokens or completion signal
+        Prefer ChatOrchestrator.process_message() for the full pipeline.
         """
-        # Build context
-        context = self.build_context(conversation_id, message, mode, history)
+        logger.warning("ChatService.generate_response() called directly — use ChatOrchestrator instead")
+
+        # Minimal prompt assembly for backwards compat
+        recent_msgs = []
+        if conversation_id:
+            recent_db_msgs = Message.query.filter_by(conversation_id=conversation_id)\
+                .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
+            recent_db_msgs.reverse()
+            recent_msgs = [{"role": m.role, "content": m.content} for m in recent_db_msgs]
+        elif history:
+            recent_msgs = history[-config.MAX_RECENT_MESSAGES:]
+
+        recent_history = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in recent_msgs
+        )
+
+        context = self.build_prompt(
+            mode_prefix=get_mode_prefix(self.prompts, mode),
+            user_profile=self.get_user_profile_context(),
+            memories="",
+            rolling_summary="",
+            recent_history=recent_history,
+            current_turn=f"User: {message}\nAssistant:",
+        )
 
         try:
-            # Stream tokens from LLM
             token_generator = self.llm.generate(context, stream=True)
-
             for token in token_generator:
                 yield f"data: {json.dumps({'token': token})}\n\n"
-
             yield f"data: {json.dumps({'done': True})}\n\n"
-
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
