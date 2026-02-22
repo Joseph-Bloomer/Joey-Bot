@@ -1,10 +1,10 @@
 """Heuristic reranker for scoring retrieval candidates without LLM calls."""
 
-import math
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from utils.logger import get_logger
+from utils.math_helpers import exponential_recency
 
 logger = get_logger()
 
@@ -224,7 +224,7 @@ class HeuristicReranker:
         days = self._days_old(created_at)
         if days is None:
             return 0.5  # unknown age, neutral default
-        return math.exp(-self.RECENCY_DECAY * days)
+        return exponential_recency(days, self.RECENCY_DECAY)
 
     @staticmethod
     def _days_old(created_at: Optional[str]) -> Optional[int]:

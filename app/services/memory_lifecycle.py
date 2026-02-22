@@ -1,7 +1,6 @@
 """Memory lifecycle management: strength decay, consolidation, and pruning."""
 
 import json
-import math
 import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -11,6 +10,7 @@ from qdrant_client import models as qdrant_models
 
 from app.data.vector_store import VectorStore
 from utils.logger import get_logger
+from utils.math_helpers import exponential_recency
 
 logger = get_logger()
 
@@ -103,7 +103,7 @@ class MemoryLifecycle:
         try:
             created = datetime.fromisoformat(created_at)
             days = max(0, (datetime.utcnow() - created).days)
-            return math.exp(-self.DECAY_RATE * days)
+            return exponential_recency(days, self.DECAY_RATE)
         except (ValueError, TypeError):
             return 0.5
 

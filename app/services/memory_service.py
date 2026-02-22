@@ -10,7 +10,10 @@ from app.models.base import BaseLLM
 from app.data.vector_store import VectorStore
 from app.services.retrieval import HybridRetriever
 from app.prompts import format_fact_extraction_prompt
+from utils.logger import get_logger
 import config
+
+logger = get_logger()
 
 
 class MemoryService:
@@ -100,7 +103,7 @@ class MemoryService:
                 if match:
                     return json.loads(match.group())
         except Exception as e:
-            print(f"Fact extraction error: {e}")
+            logger.warning("Fact extraction error: %s", e)
         return []
 
     def store_facts(
@@ -212,7 +215,7 @@ class MemoryService:
             return '\n'.join(f"- {r['text']}" for r in results)
 
         except Exception as e:
-            print(f"Memory retrieval error: {e}")
+            logger.error("Memory retrieval error: %s", e)
             return ''
 
     def get_stats(self) -> Dict[str, Any]:

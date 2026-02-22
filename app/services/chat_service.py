@@ -3,13 +3,12 @@
 import json
 import re
 from datetime import datetime
-from typing import Generator, Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional
 
 from app.models.base import BaseLLM
 from app.services.memory_service import MemoryService
 from app.data.database import db, Conversation, Message, UserProfile
 from app.prompts import (
-    get_mode_prefix,
     format_rolling_summary_prompt,
     format_title_summary_prompt
 )
@@ -85,52 +84,6 @@ class ChatService:
 
         return "\n".join(parts)
 
-    def generate_response(
-        self,
-        message: str,
-        conversation_id: Optional[int] = None,
-        mode: str = 'normal',
-        history: List[Dict[str, str]] = None
-    ) -> Generator[str, None, None]:
-        """
-        Legacy wrapper — generates a streaming response without the orchestrator.
-
-        Prefer ChatOrchestrator.process_message() for the full pipeline.
-        """
-        logger.warning("ChatService.generate_response() called directly — use ChatOrchestrator instead")
-
-        # Minimal prompt assembly for backwards compat
-        recent_msgs = []
-        if conversation_id:
-            recent_db_msgs = Message.query.filter_by(conversation_id=conversation_id)\
-                .order_by(Message.timestamp.desc()).limit(config.MAX_RECENT_MESSAGES).all()
-            recent_db_msgs.reverse()
-            recent_msgs = [{"role": m.role, "content": m.content} for m in recent_db_msgs]
-        elif history:
-            recent_msgs = history[-config.MAX_RECENT_MESSAGES:]
-
-        recent_history = "\n".join(
-            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
-            for m in recent_msgs
-        )
-
-        context = self.build_prompt(
-            mode_prefix=get_mode_prefix(self.prompts, mode),
-            user_profile=self.get_user_profile_context(),
-            memories="",
-            rolling_summary="",
-            recent_history=recent_history,
-            current_turn=f"User: {message}\nAssistant:",
-        )
-
-        try:
-            token_generator = self.llm.generate(context, stream=True)
-            for token in token_generator:
-                yield f"data: {json.dumps({'token': token})}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
     def auto_summarize(self, conversation_id: int) -> bool:
         """
         Auto-update rolling summary when enough new messages exist.
@@ -192,13 +145,13 @@ class ChatService:
                         message_ids
                     )
                     if facts_stored > 0:
-                        print(f"Stored {facts_stored} semantic facts from conversation {conversation_id}")
+                        logger.info("Stored %d semantic facts from conversation %d", facts_stored, conversation_id)
                 except Exception as e:
-                    print(f"Semantic memory extraction error: {e}")
+                    logger.warning("Semantic memory extraction error: %s", e)
 
                 return True
         except Exception as e:
-            print(f"Auto-summarization error: {e}")
+            logger.error("Auto-summarization error: %s", e)
 
         return False
 
@@ -263,5 +216,5 @@ class ChatService:
             }
 
         except Exception as e:
-            print(f"Error saving chat: {e}")
+            logger.error("Error saving chat: %s", e)
             return {'error': str(e)}
