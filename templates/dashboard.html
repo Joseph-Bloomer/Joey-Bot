@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Dashboard - Joey Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+    <header class="dash-header">
+        <div class="dash-header-left">
+            <a href="/" class="back-link">&larr; Back to Chat</a>
+            <h1>Pipeline Dashboard</h1>
+        </div>
+        <div class="dash-header-right">
+            <label class="auto-refresh-toggle">
+                <input type="checkbox" id="auto-refresh" checked>
+                Auto-refresh
+            </label>
+            <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">Refresh</button>
+        </div>
+    </header>
+
+    <main class="dash-main">
+        <!-- Section 1: Pipeline Inspector -->
+        <section class="dash-section">
+            <div class="section-header">
+                <h2>Pipeline Inspector</h2>
+                <span class="section-subtitle" id="pipeline-subtitle">No pipeline runs yet</span>
+            </div>
+            <div class="stage-grid" id="stage-grid">
+                <div class="stage-card stage-empty" id="stage-classify">
+                    <div class="stage-icon">1</div>
+                    <div class="stage-name">CLASSIFY</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+                <div class="stage-card stage-empty" id="stage-retrieve">
+                    <div class="stage-icon">2</div>
+                    <div class="stage-name">RETRIEVE</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+                <div class="stage-card stage-empty" id="stage-score">
+                    <div class="stage-icon">3</div>
+                    <div class="stage-name">SCORE</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+                <div class="stage-card stage-empty" id="stage-build_context">
+                    <div class="stage-icon">4</div>
+                    <div class="stage-name">BUILD CONTEXT</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+                <div class="stage-card stage-empty" id="stage-generate">
+                    <div class="stage-icon">5</div>
+                    <div class="stage-name">GENERATE</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+                <div class="stage-card stage-empty" id="stage-post_process">
+                    <div class="stage-icon">6</div>
+                    <div class="stage-name">POST PROCESS</div>
+                    <div class="stage-timing">&mdash;</div>
+                    <div class="stage-detail">Waiting for data</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Memory Health -->
+        <section class="dash-section">
+            <h2>Memory Health</h2>
+            <div class="memory-health-grid" id="memory-health-grid">
+                <div class="memory-stat-card">
+                    <div class="memory-stat-label">Total</div>
+                    <div class="memory-stat-value" id="mem-total">0</div>
+                </div>
+                <div class="memory-stat-card tier-strong">
+                    <div class="memory-stat-label">Strong</div>
+                    <div class="memory-stat-value" id="mem-strong">0</div>
+                </div>
+                <div class="memory-stat-card tier-medium">
+                    <div class="memory-stat-label">Medium</div>
+                    <div class="memory-stat-value" id="mem-medium">0</div>
+                </div>
+                <div class="memory-stat-card tier-weak">
+                    <div class="memory-stat-label">Weak</div>
+                    <div class="memory-stat-value" id="mem-weak">0</div>
+                </div>
+                <div class="memory-stat-card">
+                    <div class="memory-stat-label">Consolidated</div>
+                    <div class="memory-stat-value" id="mem-consolidated">0</div>
+                </div>
+            </div>
+            <div class="lifecycle-controls">
+                <span class="lifecycle-label">Lifecycle Actions:</span>
+                <button class="lifecycle-btn" onclick="runLifecycleAction('decay', this)">Decay</button>
+                <button class="lifecycle-btn" onclick="runLifecycleAction('consolidate', this)">Consolidate</button>
+                <button class="lifecycle-btn" onclick="runLifecycleAction('prune', this)">Prune</button>
+                <button class="lifecycle-btn lifecycle-btn-full" onclick="runLifecycleAction('full', this)">Full Cycle</button>
+                <span class="lifecycle-status" id="lifecycle-status"></span>
+            </div>
+            <div class="lifecycle-last-run" id="lifecycle-last-run"></div>
+        </section>
+
+        <!-- Section 3: Recent Pipeline Runs -->
+        <section class="dash-section">
+            <h2>Recent Pipeline Runs</h2>
+            <div class="runs-table-wrap">
+                <table class="runs-table" id="runs-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Message</th>
+                            <th>Classification</th>
+                            <th>Candidates</th>
+                            <th>Total (ms)</th>
+                            <th>Errors</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runs-tbody">
+                        <tr class="empty-row">
+                            <td colspan="6">No pipeline runs recorded yet. Send a chat message to generate data.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

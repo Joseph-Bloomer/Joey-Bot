@@ -164,6 +164,20 @@ body {
     pointer-events: auto;
 }
 
+.dashboard-link {
+    position: absolute;
+    top: 16px;
+    right: 24px;
+    font-size: 13px;
+    color: #6e6e80;
+    text-decoration: none;
+    pointer-events: auto;
+}
+
+.dashboard-link:hover {
+    color: #19c37d;
+}
+
 /* Chat box */
 #chat-box {
     flex: 1;

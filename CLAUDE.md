@@ -52,8 +52,14 @@ Joey-Bot/
 │   └── migrate_json_to_qdrant.py  # Migration from legacy JSON to Qdrant
 ├── utils/
 │   └── logger.py                # Logging with token tracking
-├── static/                      # Frontend assets
-├── templates/                   # Jinja2 templates
+├── static/
+│   ├── script.js                # Chat UI logic
+│   ├── stlye.css                # Chat UI styles (note typo in name)
+│   ├── dashboard.js             # Pipeline dashboard polling and rendering
+│   └── dashboard.css            # Pipeline dashboard styles
+├── templates/
+│   ├── index.html               # Main chat interface
+│   └── dashboard.html           # Pipeline observability dashboard
 └── instance/                    # Runtime data (DB, vectordb/)
 ```
 
@@ -107,7 +113,10 @@ Each stage logs timing: `[CLASSIFY] SEMANTIC (conf=0.80, 2005.3ms)`, etc. A summ
 
 ### API Endpoints (main.py)
 
-- `POST /chat` - Main chat endpoint with SSE streaming
+- `POST /chat` - Main chat endpoint with SSE streaming (records pipeline run after streaming)
+- `GET /dashboard` - Pipeline observability dashboard page
+- `GET /api/pipeline-runs` - Recent pipeline run history (up to 10, in-memory)
+- `GET /api/pipeline-latest` - Most recent pipeline run (or null)
 - `GET/POST /user-profile` - User profile management
 - `GET/DELETE /conversation/<id>` - Conversation CRUD
 - `POST /save-chat` - Save with AI-generated title/summary
@@ -115,6 +124,16 @@ Each stage logs timing: `[CLASSIFY] SEMANTIC (conf=0.80, 2005.3ms)`, etc. A summ
 - `GET /semantic-memory-stats` - Vector store statistics (includes strength tiers, consolidated count)
 - `POST /memory-lifecycle` - Manual lifecycle trigger (action: decay/consolidate/prune/full)
 - `GET /usage-stats` - Token usage analytics
+
+### Pipeline Observability Dashboard (`/dashboard`)
+
+Standalone page for debugging and demonstrating the pipeline. Three sections:
+
+1. **Pipeline Inspector** — Shows the 6 stage cards (classify, retrieve, score, build_context, generate, post_process) from the most recent run. Each card displays timing (ms), status badge (success/error/skipped), and detail text. Color-coded borders: green=success, red=error, gray=skipped.
+2. **Memory Health** — Stat cards for Total, Strong, Medium, Weak, and Consolidated memory counts (from `/semantic-memory-stats`). Lifecycle action buttons (Decay, Consolidate, Prune, Full Cycle) trigger `POST /memory-lifecycle`.
+3. **Recent Pipeline Runs** — Table of up to 10 recent runs with timestamp, message preview, classification badge, candidate count, total time, and error count. Classification badges color-coded per category (NONE=gray, RECENT=blue, SEMANTIC=green, PROFILE=amber, MULTI=purple).
+
+Auto-refreshes every 5 seconds (toggleable). Pipeline history is in-memory only — not persisted across restarts.
 
 ### Frontend (static/script.js, templates/index.html)
 

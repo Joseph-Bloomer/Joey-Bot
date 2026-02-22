@@ -56,6 +56,86 @@ orchestrator = ChatOrchestrator(
 )
 lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_service)
 
+# Pipeline run history (in-memory, not persisted)
+_pipeline_runs: list = []
+MAX_PIPELINE_HISTORY = 10
+
+
+def _record_pipeline_run(orch):
+    """Extract diagnostics from the last pipeline context and store in history."""
+    ctx = orch._last_pipeline_ctx
+    if not ctx:
+        return
+
+    timings = ctx.get("timings", {})
+    errors = ctx.get("errors", [])
+    classification = ctx.get("classification", {})
+    memory_need = classification.get("memory_need", "SEMANTIC")
+    candidates = ctx.get("scored_candidates", [])
+
+    # Build per-stage status/detail
+    error_stages = {e["stage"].lower() for e in errors}
+    skip_stages = set()
+    if memory_need in ("NONE", "RECENT", "PROFILE"):
+        skip_stages.update(("retrieve", "score"))
+
+    stages = {}
+    stage_names = ["classify", "retrieve", "score", "build_context", "generate", "post_process"]
+    for name in stage_names:
+        if name in error_stages:
+            err = next((e for e in errors if e["stage"].lower() == name), {})
+            stages[name] = {
+                "status": "error",
+                "detail": f"{err.get('error', 'unknown')} → {err.get('fallback', '')}",
+            }
+        elif name in skip_stages:
+            stages[name] = {"status": "skipped", "detail": f"memory_need={memory_need}"}
+        else:
+            stages[name] = {"status": "success", "detail": ""}
+
+    # Fill in detail text for successful stages
+    if stages["classify"]["status"] == "success":
+        conf = classification.get("confidence", 0)
+        stages["classify"]["detail"] = f"{memory_need} (conf={conf:.2f})"
+
+    if stages["retrieve"]["status"] == "success":
+        stages["retrieve"]["detail"] = f"{len(ctx.get('candidates', []))} candidates"
+
+    if stages["score"]["status"] == "success":
+        before = len(ctx.get("candidates", []))
+        after = len(candidates)
+        stages["score"]["detail"] = f"{before} -> {after} reranked"
+
+    if stages["build_context"]["status"] == "success":
+        stages["build_context"]["detail"] = f"{len(ctx.get('assembled_prompt', ''))} chars"
+
+    if stages["generate"]["status"] == "success":
+        response = ctx.get("response_text", "")
+        approx_tokens = len(response.split())
+        stages["generate"]["detail"] = f"~{approx_tokens} tokens"
+
+    if stages["post_process"]["status"] == "success":
+        stages["post_process"]["detail"] = "completed"
+
+    run = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "user_message": (ctx.get("user_message", "") or "")[:120],
+        "classification": {
+            "memory_need": memory_need,
+            "retrieval_keys": classification.get("retrieval_keys", []),
+            "confidence": classification.get("confidence", 0),
+        },
+        "candidate_count": len(candidates),
+        "total_time_ms": round(sum(timings.values()), 1),
+        "timings": {k: round(v, 1) for k, v in timings.items()},
+        "errors": errors,
+        "stages": stages,
+        "prompt_length": len(ctx.get("assembled_prompt", "")),
+    }
+
+    _pipeline_runs.insert(0, run)
+    del _pipeline_runs[MAX_PIPELINE_HISTORY:]
+
 
 # =============================================================================
 # Background scheduler (memory lifecycle)
@@ -124,15 +204,17 @@ def chat():
     elif history:
         recent_messages = history[-config.MAX_RECENT_MESSAGES:]
 
+    def generate_and_record():
+        yield from orchestrator.process_message(
+            user_message=data.get('message'),
+            conversation_id=conversation_id,
+            recent_messages=recent_messages,
+            mode=data.get('mode', 'normal'),
+        )
+        _record_pipeline_run(orchestrator)
+
     return Response(
-        stream_with_context(
-            orchestrator.process_message(
-                user_message=data.get('message'),
-                conversation_id=conversation_id,
-                recent_messages=recent_messages,
-                mode=data.get('mode', 'normal'),
-            )
-        ),
+        stream_with_context(generate_and_record()),
         mimetype='text/event-stream'
     )
 
@@ -293,6 +375,24 @@ def run_memory_lifecycle():
     except Exception as e:
         logger.warning(f"[LIFECYCLE] Manual {action} error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/dashboard')
+def dashboard():
+    """Render pipeline observability dashboard."""
+    return render_template('dashboard.html')
+
+
+@app.route('/api/pipeline-runs', methods=['GET'])
+def get_pipeline_runs():
+    """Get recent pipeline run history (up to 10)."""
+    return jsonify(_pipeline_runs)
+
+
+@app.route('/api/pipeline-latest', methods=['GET'])
+def get_pipeline_latest():
+    """Get the most recent pipeline run."""
+    return jsonify(_pipeline_runs[0] if _pipeline_runs else None)
 
 
 @app.route('/conversations', methods=['GET'])
