@@ -11,6 +11,7 @@ from qdrant_client import models as qdrant_models
 from app.data.vector_store import VectorStore
 from utils.logger import get_logger
 from utils.math_helpers import exponential_recency
+import config
 
 logger = get_logger()
 
@@ -41,14 +42,14 @@ class MemoryLifecycle:
 
     # Recency decay rate: exp(-DECAY_RATE * days)
     # 1d=0.95, 7d=0.70, 30d=0.22, 60d=0.05
-    DECAY_RATE = 0.05
+    DECAY_RATE = config.LIFECYCLE_DECAY_RATE
 
     # Usage cap for access_score component
-    ACCESS_CAP = 10.0
+    ACCESS_CAP = config.LIFECYCLE_ACCESS_CAP
 
     # Consolidation thresholds
     CONSOLIDATION_STRENGTH_THRESHOLD = 0.3
-    CONSOLIDATION_SIMILARITY_THRESHOLD = 0.8
+    CONSOLIDATION_SIMILARITY_THRESHOLD = config.CONSOLIDATION_SIMILARITY_THRESHOLD
     CONSOLIDATION_MIN_CLUSTER_SIZE = 3
     CONSOLIDATION_MAX_TOKENS = 200
 

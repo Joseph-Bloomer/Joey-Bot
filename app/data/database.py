@@ -23,10 +23,10 @@ class Conversation(db.Model):
 class Message(db.Model):
     """Represents a single message in a conversation."""
     id = db.Column(db.Integer, primary_key=True)
-    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=True, index=True)
     role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
     content = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
 
 class MemoryMarker(db.Model):

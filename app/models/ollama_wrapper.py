@@ -17,9 +17,9 @@ class OllamaWrapper(BaseLLM):
 
     def __init__(
         self,
-        model: str = "ollama/gemma3:4b",
-        embedding_model: str = "ollama/nomic-embed-text",
-        api_base: str = "http://localhost:11434"
+        model: str = config.LITELLM_CHAT_MODEL,
+        embedding_model: str = config.LITELLM_EMBEDDING_MODEL,
+        api_base: str = config.OLLAMA_BASE_URL,
     ):
         """
         Initialize Ollama wrapper.
@@ -120,7 +120,7 @@ class OllamaWrapper(BaseLLM):
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=False,
-                temperature=0.3,  # Lower temperature for structured output
+                temperature=config.JSON_GENERATION_TEMPERATURE,
                 api_base=self.api_base
             )
             if max_tokens:

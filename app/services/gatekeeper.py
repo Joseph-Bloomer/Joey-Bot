@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from app.models.base import BaseLLM
 from app.prompts import format_memory_classification_prompt
 from utils.logger import get_logger
+import config
 
 logger = get_logger()
 
@@ -81,7 +82,7 @@ class MemoryGatekeeper:
         if not messages:
             return "(no recent messages)"
         lines = []
-        for msg in messages[-3:]:
+        for msg in messages[-config.GATEKEEPER_CONTEXT_WINDOW:]:
             role = "User" if msg.get("role") == "user" else "Assistant"
             lines.append(f"{role}: {msg.get('content', '')}")
         return "\n".join(lines)

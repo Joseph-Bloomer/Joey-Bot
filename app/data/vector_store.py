@@ -7,6 +7,7 @@ from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from utils.logger import get_logger
+import config
 
 logger = get_logger(__name__)
 
@@ -193,7 +194,7 @@ class VectorStore:
                 results, next_offset = self.client.scroll(
                     collection_name=self.collection_name,
                     scroll_filter=where_filter,
-                    limit=100,
+                    limit=config.QDRANT_SCROLL_BATCH_SIZE,
                     offset=offset,
                     with_payload=True,
                 )

@@ -59,7 +59,7 @@ lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_se
 
 # Pipeline run history (in-memory, not persisted)
 _pipeline_runs: list = []
-MAX_PIPELINE_HISTORY = 10
+MAX_PIPELINE_HISTORY = config.MAX_PIPELINE_HISTORY
 
 
 def _record_pipeline_run(orch):

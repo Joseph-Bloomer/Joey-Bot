@@ -62,3 +62,24 @@ EMBEDDING_MODEL_PATTERNS = ['nomic-embed', 'all-minilm', 'bge-', 'e5-']
 # Server configuration
 DEBUG = True
 PORT = 5000
+
+# --- Memory Retrieval ---
+GATEKEEPER_CONTEXT_WINDOW = 3          # Recent messages sent to gatekeeper for classification
+                                        # Also used by orchestrator for context building
+
+# --- Memory Lifecycle ---
+LIFECYCLE_DECAY_RATE = 0.05            # Exponential decay rate for strength calculation
+LIFECYCLE_ACCESS_CAP = 10.0            # Maximum access count for strength scoring
+CONSOLIDATION_SIMILARITY_THRESHOLD = 0.8  # Cosine similarity threshold for clustering
+
+# --- Qdrant ---
+QDRANT_SCROLL_BATCH_SIZE = 100         # Batch size for scrolling through all memories
+
+# --- Pipeline ---
+MAX_PIPELINE_HISTORY = 10              # Pipeline runs kept in memory for dashboard
+
+# --- Logging ---
+LOG_LEVEL = "INFO"                     # Application log level
+
+# --- LLM Generation ---
+JSON_GENERATION_TEMPERATURE = 0.3      # Temperature for structured JSON output tasks

@@ -92,7 +92,7 @@ class ChatOrchestrator:
         t0 = time.perf_counter()
         try:
             if self.gatekeeper and config.GATEKEEPER_ENABLED:
-                gatekeeper_context = ctx["recent_messages"][-3:] if ctx["recent_messages"] else []
+                gatekeeper_context = ctx["recent_messages"][-config.GATEKEEPER_CONTEXT_WINDOW:] if ctx["recent_messages"] else []
                 classification = self.gatekeeper.classify(ctx["user_message"], gatekeeper_context)
             else:
                 classification = {

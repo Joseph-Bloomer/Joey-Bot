@@ -4,8 +4,10 @@ import logging
 import os
 from datetime import datetime
 
+import config
 
-def setup_logging(log_dir: str = 'logs', level: int = logging.INFO) -> logging.Logger:
+
+def setup_logging(log_dir: str = 'logs', level: int = getattr(logging, config.LOG_LEVEL, logging.INFO)) -> logging.Logger:
     """
     Configure logging with file and console handlers.
 
