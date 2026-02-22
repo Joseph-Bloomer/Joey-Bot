@@ -1,5 +1,6 @@
 """Flask application entry point for Joey-Bot."""
 
+import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -205,13 +206,18 @@ def chat():
         recent_messages = history[-config.MAX_RECENT_MESSAGES:]
 
     def generate_and_record():
-        yield from orchestrator.process_message(
-            user_message=data.get('message'),
-            conversation_id=conversation_id,
-            recent_messages=recent_messages,
-            mode=data.get('mode', 'normal'),
-        )
-        _record_pipeline_run(orchestrator)
+        try:
+            yield from orchestrator.process_message(
+                user_message=data.get('message'),
+                conversation_id=conversation_id,
+                recent_messages=recent_messages,
+                mode=data.get('mode', 'normal'),
+            )
+        except Exception as e:
+            logger.error("Unhandled error in /chat stream: %s", e)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            _record_pipeline_run(orchestrator)
 
     return Response(
         stream_with_context(generate_and_record()),
