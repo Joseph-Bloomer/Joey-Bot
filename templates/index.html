@@ -85,6 +85,19 @@
                             Logic
                         </button>
                     </div>
+                    <div class="search-toggle">
+                        <span class="search-toggle-label">
+                            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+                            </svg>
+                            Web
+                        </span>
+                        <div class="search-toggle-group">
+                            <button onclick="setSearchMode('off')" class="search-btn" id="search-off">Off</button>
+                            <button onclick="setSearchMode('auto')" class="search-btn active" id="search-auto">Auto</button>
+                            <button onclick="setSearchMode('on')" class="search-btn" id="search-on">On</button>
+                        </div>
+                    </div>
                     <div class="token-speed" id="token-speed">
                         <span class="token-speed-value" id="token-speed-value">0</span>
                         <span class="token-speed-label">tok/s</span>

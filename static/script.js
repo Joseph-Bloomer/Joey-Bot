@@ -3,6 +3,7 @@ let currentConversationId = null;  // null = unsaved, number = saved
 let conversationHistory = [];      // in-memory history for context
 let currentMode = 'normal';
 let currentModel = null;
+let currentSearchMode = 'auto';    // "off", "auto", or "on"
 
 // Store raw text for streaming messages to enable proper formatting
 const streamingRawText = {};
@@ -23,6 +24,14 @@ function setMode(mode) {
         btn.classList.remove('active');
     });
     document.getElementById(`btn-${mode}`).classList.add('active');
+}
+
+function setSearchMode(mode) {
+    currentSearchMode = mode;
+    document.querySelectorAll('.search-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.getElementById(`search-${mode}`).classList.add('active');
 }
 
 // Token speed tracking functions
@@ -121,6 +130,7 @@ async function sendMessage() {
             body: JSON.stringify({
                 message: message,
                 mode: currentMode,
+                search_mode: currentSearchMode,
                 conversation_id: currentConversationId,
                 history: conversationHistory
             })
@@ -150,7 +160,10 @@ async function sendMessage() {
 
                     if (data.error) {
                         updateStreamingMessage(aiMessageId, data.error, true);
+                    } else if (data.searching) {
+                        showSearchingIndicator(aiMessageId);
                     } else if (data.token) {
+                        removeSearchingIndicator(aiMessageId);
                         appendToStreamingMessage(aiMessageId, data.token);
                     } else if (data.done) {
                         break;
@@ -443,6 +456,24 @@ function updateStreamingMessage(id, text, isError = false) {
     }
 }
 
+function showSearchingIndicator(id) {
+    const messageDiv = document.getElementById(id);
+    if (messageDiv) {
+        const content = messageDiv.querySelector('.message-content');
+        content.innerHTML = '<div class="searching-indicator"><span class="searching-dots"></span> Searching the web\u2026</div>';
+        const chatBox = document.getElementById('chat-box');
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
+function removeSearchingIndicator(id) {
+    const messageDiv = document.getElementById(id);
+    if (messageDiv) {
+        const indicator = messageDiv.querySelector('.searching-indicator');
+        if (indicator) indicator.remove();
+    }
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -503,6 +534,10 @@ function formatText(text) {
     // Italic: *text* (but not at line start which is bullet, and not part of **)
     // Use a simpler approach that doesn't require lookbehind
     result = result.replace(/([^*]|^)\*([^*\n]+)\*([^*]|$)/g, '$1<em>$2</em>$3');
+
+    // Markdown links: [text](url) → clickable <a> tags
+    result = result.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>');
 
     // Convert remaining newlines to <br>
     result = result.replace(/\n/g, '<br>');
