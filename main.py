@@ -1,5 +1,6 @@
 """Flask application entry point for Joey-Bot."""
 
+import os
 import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
@@ -8,6 +9,7 @@ from sqlalchemy import func
 
 from app.data.database import db, Conversation, Message, UserProfile, TokenUsage, init_db
 from app.models.ollama_wrapper import OllamaWrapper
+from app.models.cloud_wrapper import CloudWrapper
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
@@ -35,18 +37,31 @@ init_db(app)
 prompts = load_prompts()
 
 # Initialize services (dependency injection)
-llm = OllamaWrapper(
+local_llm = OllamaWrapper(
     model=config.LITELLM_CHAT_MODEL,
     embedding_model=config.LITELLM_EMBEDDING_MODEL,
     api_base="http://localhost:11434"
 )
-memory_service = MemoryService(llm, prompts, config.VECTOR_STORE_PATH)
+
+# Build model registry from config (only models with valid API keys)
+model_registry = {config.LOCAL_MODEL_DISPLAY_NAME: local_llm}
+for display_name, model_cfg in config.CLOUD_MODELS.items():
+    api_key = os.environ.get(model_cfg["api_key_env"], "")
+    if api_key:
+        model_registry[display_name] = CloudWrapper(
+            provider=model_cfg["provider"],
+            model=model_cfg["model"],
+            api_key=api_key,
+            display_name=display_name,
+        )
+
+memory_service = MemoryService(local_llm, prompts, config.VECTOR_STORE_PATH)
 gatekeeper = MemoryGatekeeper(
-    llm, prompts,
+    local_llm, prompts,
     max_tokens=config.GATEKEEPER_MAX_TOKENS,
     timeout=config.GATEKEEPER_TIMEOUT
 )
-chat_service = ChatService(llm, memory_service, prompts)
+chat_service = ChatService(local_llm, memory_service, prompts)
 reranker = HeuristicReranker()
 orchestrator = ChatOrchestrator(
     gatekeeper=gatekeeper,
@@ -54,6 +69,8 @@ orchestrator = ChatOrchestrator(
     chat_service=chat_service,
     memory_service=memory_service,
     reranker=reranker,
+    local_llm=local_llm,
+    model_registry=model_registry,
 )
 lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_service)
 
@@ -240,8 +257,8 @@ def chat():
 @app.route('/models', methods=['GET'])
 def list_models():
     """List available Ollama models."""
-    models = llm.list_available_models()
-    current = llm.get_current_model()
+    models = local_llm.list_available_models()
+    current = local_llm.get_current_model()
     return jsonify({'models': models, 'current': current})
 
 
@@ -253,11 +270,24 @@ def switch_model():
     if not model_name:
         return jsonify({'error': 'Model name required'}), 400
 
-    success = llm.switch_model(model_name)
+    success = local_llm.switch_model(model_name)
     if success:
         logger.info(f"Switched to model: {model_name}")
-        return jsonify({'success': True, 'current': llm.get_current_model()})
+        return jsonify({'success': True, 'current': local_llm.get_current_model()})
     return jsonify({'error': 'Failed to switch model'}), 500
+
+
+@app.route('/api/available-models', methods=['GET'])
+def available_models():
+    """List all models available for chat (local + cloud with valid keys)."""
+    models = []
+    for name in model_registry:
+        is_local = (name == config.LOCAL_MODEL_DISPLAY_NAME)
+        models.append({
+            "name": name,
+            "is_local": is_local,
+        })
+    return jsonify({"models": models})
 
 
 @app.route('/user-profile', methods=['GET'])
@@ -290,6 +320,7 @@ def log_token_usage():
     data = request.json
     usage = TokenUsage(
         conversation_id=data.get('conversation_id'),
+        model_name=data.get('model_name', config.LOCAL_MODEL_DISPLAY_NAME),
         tokens_output=data.get('tokens_output', 0),
         tokens_per_second=data.get('tokens_per_second', 0),
         duration_ms=data.get('duration_ms', 0)
@@ -311,7 +342,7 @@ def log_token_usage():
 
 @app.route('/usage-stats', methods=['GET'])
 def get_usage_stats():
-    """Get global usage statistics."""
+    """Get global and per-model usage statistics."""
     # Total tokens all-time
     total_tokens = db.session.query(func.sum(TokenUsage.tokens_output)).scalar() or 0
 
@@ -330,11 +361,44 @@ def get_usage_stats():
     ).filter(TokenUsage.tokens_per_second > 0).scalar()
     avg_tokens_per_second = round(avg_speed or 0, 1)
 
+    # Per-model breakdown
+    model_rows = db.session.query(
+        TokenUsage.model_name,
+        func.sum(TokenUsage.tokens_output),
+        func.count(TokenUsage.id),
+        func.avg(TokenUsage.tokens_per_second),
+    ).group_by(TokenUsage.model_name).all()
+
+    # Build cost lookup from config
+    cost_lookup = {}
+    for display_name, cfg in config.CLOUD_MODELS.items():
+        cost_lookup[display_name] = {
+            "cost_per_1k_input": cfg.get("cost_per_1k_input", 0.0),
+            "cost_per_1k_output": cfg.get("cost_per_1k_output", 0.0),
+        }
+
+    per_model = {}
+    for model_name, tokens, count, avg_spd in model_rows:
+        name = model_name or config.LOCAL_MODEL_DISPLAY_NAME
+        tokens = tokens or 0
+        is_local = name == config.LOCAL_MODEL_DISPLAY_NAME
+        costs = cost_lookup.get(name, {"cost_per_1k_input": 0.0, "cost_per_1k_output": 0.0})
+        estimated_cost = round((tokens / 1000) * costs["cost_per_1k_output"], 4)
+        per_model[name] = {
+            "tokens": tokens,
+            "requests": count or 0,
+            "avg_speed": round(avg_spd or 0, 1),
+            "is_local": is_local,
+            "cost_per_1k_output": costs["cost_per_1k_output"],
+            "estimated_cost": estimated_cost,
+        }
+
     return jsonify({
         'total_tokens': total_tokens,
         'total_conversations': total_conversations,
         'avg_per_chat': avg_per_chat,
-        'avg_tokens_per_second': avg_tokens_per_second
+        'avg_tokens_per_second': avg_tokens_per_second,
+        'per_model': per_model,
     })
 
 
