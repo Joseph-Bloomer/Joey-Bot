@@ -74,5 +74,6 @@ typer-slim==0.21.1
 typing_extensions==4.15.0
 urllib3==2.6.3
 wcwidth==0.5.2
+google-generativeai>=0.8.0
 python-dotenv>=1.0.0
 Werkzeug==3.1.5
