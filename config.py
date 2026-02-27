@@ -1,6 +1,9 @@
 """Centralized configuration for Joey-Bot."""
 
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file if it exists
 
 # Ollama API configuration
 OLLAMA_BASE_URL = "http://localhost:11434/api"
@@ -83,3 +86,12 @@ LOG_LEVEL = "INFO"                     # Application log level
 
 # --- LLM Generation ---
 JSON_GENERATION_TEMPERATURE = 0.3      # Temperature for structured JSON output tasks
+
+# --- Web Search ---
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
+WEB_SEARCH_ENABLED = True                    # Master switch for web search feature
+WEB_SEARCH_MAX_RESULTS = 3                   # Number of results from Tavily
+WEB_SEARCH_MAX_CHARS_PER_RESULT = 500        # Truncate each result's content
+WEB_SEARCH_MAX_TOTAL_CHARS = 1500            # Hard cap on total web content in prompt
+WEB_SEARCH_TIMEOUT = 10                      # Seconds before Tavily request times out
+WEB_SEARCH_DEPTH = "basic"                   # "basic" or "advanced" (advanced uses more API credits)

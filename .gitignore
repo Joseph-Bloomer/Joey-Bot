@@ -5,3 +5,4 @@ instance/joeybot.db
 instance/vectordb/
 logs/
 .claude/
+.env
