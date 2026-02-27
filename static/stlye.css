@@ -937,3 +937,118 @@ body {
 .save-status.error {
     color: #ef4444;
 }
+
+/* ==================== */
+/* Cloud Model Styles */
+/* ==================== */
+
+.cloud-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: #7c3aed;
+    color: #fff;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+.model-selector.cloud-active #model-select {
+    border-color: #7c3aed;
+}
+
+/* Cloud error fallback in chat */
+.cloud-error-fallback {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+}
+
+.cloud-error-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background: #ef4444;
+    color: #fff;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.cloud-error-fallback p {
+    color: #6e6e80;
+    font-size: 13px;
+    margin: 8px 0;
+}
+
+.cloud-error-btn {
+    padding: 6px 16px;
+    background: transparent;
+    border: 1px solid #d1d5db;
+    border-radius: 16px;
+    color: #6e6e80;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cloud-error-btn:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+
+/* ==================== */
+/* Per-Model Usage Breakdown */
+/* ==================== */
+
+.per-model-heading {
+    font-size: 16px;
+    font-weight: 600;
+    color: #202123;
+    margin-bottom: 16px;
+}
+
+.per-model-empty {
+    color: #8e8ea0;
+    font-size: 13px;
+    font-style: italic;
+}
+
+.per-model-card {
+    background: #f7f7f8;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+
+.per-model-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #202123;
+    margin-bottom: 10px;
+}
+
+.per-model-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    text-align: center;
+}
+
+.per-model-stat-value {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    color: #202123;
+}
+
+.per-model-stat-label {
+    display: block;
+    font-size: 11px;
+    color: #8e8ea0;
+    text-transform: uppercase;
+    margin-top: 2px;
+}

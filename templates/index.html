@@ -70,9 +70,10 @@
                 </div>
                 <div class="input-footer">
                     <div class="model-selector">
-                        <select id="model-select" onchange="switchModel(this.value)">
+                        <select id="model-select" onchange="setModel(this.value)">
                             <option value="">Loading models...</option>
                         </select>
+                        <span class="cloud-badge" id="cloud-badge" style="display:none">Cloud</span>
                     </div>
                     <div class="mode-selector">
                         <button onclick="setMode('normal')" class="mode-btn active" id="btn-normal">
@@ -174,6 +175,12 @@
                                 <span class="usage-stat-label">Total Chats</span>
                                 <span class="usage-stat-value" id="total-conversations">0</span>
                             </div>
+                        </div>
+                    </div>
+                    <div class="settings-card" style="margin-top: 20px;">
+                        <h3 class="per-model-heading">Per-Model Breakdown</h3>
+                        <div id="per-model-breakdown">
+                            <p class="per-model-empty">Loading...</p>
                         </div>
                     </div>
                 </section>

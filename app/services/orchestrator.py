@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Generator
 
 from app.prompts import get_mode_prefix
 from app.data.database import Conversation, Message
+from app.models.cloud_wrapper import CloudGenerationError
 from app.services.web_search import WebSearchService
 from utils.logger import get_logger
 import config
@@ -27,15 +28,27 @@ class ChatOrchestrator:
     """
 
     def __init__(self, gatekeeper, retriever, chat_service, memory_service,
-                 reranker=None, compressor=None):
+                 reranker=None, compressor=None,
+                 local_llm=None, model_registry=None):
         self.gatekeeper = gatekeeper
         self.retriever = retriever
         self.chat_service = chat_service
         self.memory_service = memory_service
         self.reranker = reranker      # HeuristicReranker instance (or None)
         self.compressor = compressor  # Future placeholder
+        self.local_llm = local_llm or chat_service.llm
+        self.model_registry: Dict[str, Any] = model_registry or {}
         self.web_search = WebSearchService()
         self._last_pipeline_ctx: Optional[Dict[str, Any]] = None
+
+    def _resolve_llm(self, model_name: Optional[str] = None):
+        """Look up the LLM instance for a given model display name."""
+        if not model_name:
+            return self.local_llm
+        if model_name in self.model_registry:
+            return self.model_registry[model_name]
+        logger.warning(f"[RESOLVE_LLM] Unknown model '{model_name}', falling back to local")
+        return self.local_llm
 
     def process_message(
         self,
@@ -44,6 +57,7 @@ class ChatOrchestrator:
         recent_messages: List[Dict[str, str]],
         mode: str = "normal",
         search_mode: str = "auto",
+        model: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
         Run the full pipeline and yield SSE-formatted tokens.
@@ -54,9 +68,11 @@ class ChatOrchestrator:
             recent_messages: Pre-loaded recent message dicts.
             mode: Response mode (normal/concise/logic).
             search_mode: Web search mode — "off", "auto", or "on".
+            model: Display name of the model to use for generation (None = local).
 
         Yields:
-            SSE data strings: {"token": "..."}, {"searching": true}, and {"done": true}.
+            SSE data strings: {"token": "..."}, {"searching": true},
+            {"cloud_error": true, ...}, and {"done": true}.
         """
         ctx: Dict[str, Any] = {
             "user_message": user_message,
@@ -64,6 +80,7 @@ class ChatOrchestrator:
             "recent_messages": recent_messages,
             "mode": mode,
             "search_mode": search_mode,
+            "model": model,
             "classification": {},
             "candidates": [],
             "scored_candidates": [],
@@ -85,8 +102,9 @@ class ChatOrchestrator:
         # Stage 5 is a generator — yield from it
         yield from self._stage_generate(ctx)
 
-        # Stage 6 runs after streaming completes
-        self._stage_post_process(ctx)
+        # Stage 6 runs after streaming completes (skip if cloud model failed)
+        if not ctx.get("cloud_failed"):
+            self._stage_post_process(ctx)
 
         # Log pipeline summary
         self._log_pipeline_summary(ctx)
@@ -373,8 +391,9 @@ class ChatOrchestrator:
 
     def _stage_generate(self, ctx: Dict[str, Any]) -> Generator[str, None, None]:
         t0 = time.perf_counter()
+        llm = self._resolve_llm(ctx.get("model"))
         try:
-            token_generator = self.chat_service.llm.generate(
+            token_generator = llm.generate(
                 ctx["assembled_prompt"], stream=True
             )
             for token in token_generator:
@@ -382,6 +401,15 @@ class ChatOrchestrator:
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
             yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except CloudGenerationError as e:
+            ctx["cloud_failed"] = True
+            ctx["errors"].append({
+                "stage": "GENERATE", "error": str(e),
+                "fallback": "cloud_error event",
+            })
+            yield f"data: {json.dumps({'cloud_error': True, 'error_type': e.error_type, 'message': e.message, 'model': ctx.get('model', '')})}\n\n"
+            logger.warning(f"[GENERATE] Cloud error ({e.error_type}): {e}")
 
         except Exception as e:
             ctx["errors"].append({"stage": "GENERATE", "error": str(e), "fallback": "error event"})

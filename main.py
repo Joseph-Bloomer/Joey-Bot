@@ -1,6 +1,7 @@
 """Flask application entry point for Joey-Bot."""
 
 import json
+import os
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -8,6 +9,7 @@ from sqlalchemy import func
 
 from app.data.database import db, Conversation, Message, UserProfile, TokenUsage, init_db
 from app.models.ollama_wrapper import OllamaWrapper
+from app.models.cloud_wrapper import CloudWrapper
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
@@ -35,18 +37,34 @@ init_db(app)
 prompts = load_prompts()
 
 # Initialize services (dependency injection)
-llm = OllamaWrapper(
+local_llm = OllamaWrapper(
     model=config.LITELLM_CHAT_MODEL,
     embedding_model=config.LITELLM_EMBEDDING_MODEL,
     api_base="http://localhost:11434"
 )
-memory_service = MemoryService(llm, prompts, config.VECTOR_STORE_PATH)
+
+# Build model registry: local model + any configured cloud models
+model_registry = {config.LOCAL_MODEL_DISPLAY_NAME: local_llm}
+for display_name, model_cfg in config.CLOUD_MODELS.items():
+    api_key = os.environ.get(model_cfg["api_key_env"], "")
+    if api_key:
+        model_registry[display_name] = CloudWrapper(
+            provider=model_cfg["provider"],
+            model=model_cfg["model"],
+            api_key=api_key,
+            display_name=display_name,
+        )
+        logger.info(f"[INIT] Cloud model registered: {display_name}")
+    else:
+        logger.info(f"[INIT] Cloud model skipped (no API key): {display_name}")
+
+memory_service = MemoryService(local_llm, prompts, config.VECTOR_STORE_PATH)
 gatekeeper = MemoryGatekeeper(
-    llm, prompts,
+    local_llm, prompts,
     max_tokens=config.GATEKEEPER_MAX_TOKENS,
     timeout=config.GATEKEEPER_TIMEOUT
 )
-chat_service = ChatService(llm, memory_service, prompts)
+chat_service = ChatService(local_llm, memory_service, prompts)
 reranker = HeuristicReranker()
 orchestrator = ChatOrchestrator(
     gatekeeper=gatekeeper,
@@ -54,6 +72,8 @@ orchestrator = ChatOrchestrator(
     chat_service=chat_service,
     memory_service=memory_service,
     reranker=reranker,
+    local_llm=local_llm,
+    model_registry=model_registry,
 )
 lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_service)
 
@@ -224,6 +244,7 @@ def chat():
                 recent_messages=recent_messages,
                 mode=data.get('mode', 'normal'),
                 search_mode=data.get('search_mode', 'auto'),
+                model=data.get('model'),
             )
         except Exception as e:
             logger.error("Unhandled error in /chat stream: %s", e)
@@ -240,24 +261,34 @@ def chat():
 @app.route('/models', methods=['GET'])
 def list_models():
     """List available Ollama models."""
-    models = llm.list_available_models()
-    current = llm.get_current_model()
+    models = local_llm.list_available_models()
+    current = local_llm.get_current_model()
     return jsonify({'models': models, 'current': current})
 
 
 @app.route('/models/switch', methods=['POST'])
 def switch_model():
-    """Switch to a different chat model."""
+    """Switch to a different local chat model."""
     data = request.json
     model_name = data.get('model')
     if not model_name:
         return jsonify({'error': 'Model name required'}), 400
 
-    success = llm.switch_model(model_name)
+    success = local_llm.switch_model(model_name)
     if success:
         logger.info(f"Switched to model: {model_name}")
-        return jsonify({'success': True, 'current': llm.get_current_model()})
+        return jsonify({'success': True, 'current': local_llm.get_current_model()})
     return jsonify({'error': 'Failed to switch model'}), 500
+
+
+@app.route('/api/available-models', methods=['GET'])
+def available_models():
+    """List all models in the registry (local + cloud)."""
+    models = []
+    for name, llm_instance in model_registry.items():
+        is_local = (name == config.LOCAL_MODEL_DISPLAY_NAME)
+        models.append({'name': name, 'is_local': is_local})
+    return jsonify(models)
 
 
 @app.route('/user-profile', methods=['GET'])
@@ -290,6 +321,7 @@ def log_token_usage():
     data = request.json
     usage = TokenUsage(
         conversation_id=data.get('conversation_id'),
+        model_name=data.get('model_name', config.LOCAL_MODEL_DISPLAY_NAME),
         tokens_output=data.get('tokens_output', 0),
         tokens_per_second=data.get('tokens_per_second', 0),
         duration_ms=data.get('duration_ms', 0)
@@ -311,7 +343,7 @@ def log_token_usage():
 
 @app.route('/usage-stats', methods=['GET'])
 def get_usage_stats():
-    """Get global usage statistics."""
+    """Get global usage statistics with per-model breakdown."""
     # Total tokens all-time
     total_tokens = db.session.query(func.sum(TokenUsage.tokens_output)).scalar() or 0
 
@@ -330,11 +362,36 @@ def get_usage_stats():
     ).filter(TokenUsage.tokens_per_second > 0).scalar()
     avg_tokens_per_second = round(avg_speed or 0, 1)
 
+    # Per-model breakdown
+    per_model_rows = db.session.query(
+        TokenUsage.model_name,
+        func.sum(TokenUsage.tokens_output).label("tokens"),
+        func.count(TokenUsage.id).label("requests"),
+        func.avg(TokenUsage.tokens_per_second).label("avg_speed"),
+    ).group_by(TokenUsage.model_name).all()
+
+    per_model = {}
+    for row in per_model_rows:
+        name = row.model_name or config.LOCAL_MODEL_DISPLAY_NAME
+        is_local = (name == config.LOCAL_MODEL_DISPLAY_NAME)
+        cloud_cfg = config.CLOUD_MODELS.get(name, {})
+        per_model[name] = {
+            "tokens": row.tokens or 0,
+            "requests": row.requests or 0,
+            "avg_speed": round(row.avg_speed or 0, 1),
+            "is_local": is_local,
+            "cost_per_1k_output": cloud_cfg.get("cost_per_1k_output", 0.0),
+            "estimated_cost": round(
+                (row.tokens or 0) / 1000 * cloud_cfg.get("cost_per_1k_output", 0.0), 4
+            ),
+        }
+
     return jsonify({
         'total_tokens': total_tokens,
         'total_conversations': total_conversations,
         'avg_per_chat': avg_per_chat,
-        'avg_tokens_per_second': avg_tokens_per_second
+        'avg_tokens_per_second': avg_tokens_per_second,
+        'per_model': per_model,
     })
 
 

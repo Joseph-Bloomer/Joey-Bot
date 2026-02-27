@@ -76,6 +76,7 @@ async function logTokenUsage(tokens, tokensPerSecond, durationMs) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 conversation_id: currentConversationId,
+                model_name: currentModel || undefined,
                 tokens_output: tokens,
                 tokens_per_second: Math.round(tokensPerSecond * 10) / 10,
                 duration_ms: Math.round(durationMs)
@@ -131,6 +132,7 @@ async function sendMessage() {
                 message: message,
                 mode: currentMode,
                 search_mode: currentSearchMode,
+                model: currentModel || undefined,
                 conversation_id: currentConversationId,
                 history: conversationHistory
             })
@@ -158,7 +160,9 @@ async function sendMessage() {
                 if (line.startsWith('data: ')) {
                     const data = JSON.parse(line.slice(6));
 
-                    if (data.error) {
+                    if (data.cloud_error) {
+                        showCloudErrorFallback(aiMessageId, data);
+                    } else if (data.error) {
                         updateStreamingMessage(aiMessageId, data.error, true);
                     } else if (data.searching) {
                         showSearchingIndicator(aiMessageId);
@@ -576,48 +580,87 @@ async function updateMemoryStats() {
 }
 
 // ====================
-// Model Switching Functions
+// Model Selection Functions
 // ====================
 
-async function loadModels() {
+let defaultModelName = null;
+
+async function loadAvailableModels() {
     try {
-        const response = await fetch('/models');
-        const data = await response.json();
-        currentModel = data.current;
+        const response = await fetch('/api/available-models');
+        const models = await response.json();
         const select = document.getElementById('model-select');
-        select.innerHTML = data.models.map(m =>
-            `<option value="${m.name}" ${m.name === currentModel ? 'selected' : ''}>${m.name}</option>`
+
+        select.innerHTML = models.map(m =>
+            `<option value="${m.name}" ${m.is_local ? 'selected' : ''}>${m.name}</option>`
         ).join('');
+
+        // Set initial model to the local model
+        const localModel = models.find(m => m.is_local);
+        if (localModel) {
+            currentModel = localModel.name;
+            defaultModelName = localModel.name;
+        } else if (models.length > 0) {
+            currentModel = models[0].name;
+            defaultModelName = models[0].name;
+        }
+
+        updateCloudIndicator();
     } catch (error) {
-        console.error('Error loading models:', error);
+        console.error('Error loading available models:', error);
     }
 }
 
-async function switchModel(modelName) {
-    if (modelName === currentModel) return;
-    const select = document.getElementById('model-select');
-    select.disabled = true;
+function setModel(modelName) {
+    currentModel = modelName;
+    updateCloudIndicator();
+    dismissAllCloudErrors();
+}
 
-    try {
-        const response = await fetch('/models/switch', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({model: modelName})
-        });
-        const result = await response.json();
-        if (result.success) {
-            currentModel = result.current;
-            // Start fresh chat when switching models
-            newChat();
-        } else {
-            select.value = currentModel;
-        }
-    } catch (error) {
-        console.error('Error switching model:', error);
-        select.value = currentModel;
-    } finally {
-        select.disabled = false;
+function updateCloudIndicator() {
+    const badge = document.getElementById('cloud-badge');
+    if (!badge) return;
+
+    if (currentModel && currentModel !== defaultModelName) {
+        badge.style.display = 'inline';
+        badge.textContent = 'Cloud';
+    } else {
+        badge.style.display = 'none';
     }
+}
+
+function showCloudErrorFallback(aiMessageId, data) {
+    const messageDiv = document.getElementById(aiMessageId);
+    if (!messageDiv) return;
+
+    const content = messageDiv.querySelector('.message-content');
+    const errorLabels = {
+        'auth_error': 'Authentication failed',
+        'rate_limit': 'Rate limit exceeded',
+        'network_error': 'Network error',
+        'unknown': 'Unknown error',
+    };
+    const label = errorLabels[data.error_type] || 'Cloud model error';
+
+    content.innerHTML = `
+        <div class="cloud-error-fallback">
+            <span class="cloud-error-badge">${escapeHtml(label)}</span>
+            <p>${escapeHtml(data.model || 'Cloud model')} is unavailable. Switch to a local model or try again.</p>
+            <button class="cloud-error-btn" onclick="dismissCloudError('${aiMessageId}')">Dismiss</button>
+        </div>
+    `;
+}
+
+function dismissCloudError(id) {
+    const messageDiv = document.getElementById(id);
+    if (messageDiv) messageDiv.remove();
+}
+
+function dismissAllCloudErrors() {
+    document.querySelectorAll('.cloud-error-fallback').forEach(el => {
+        const msg = el.closest('.message');
+        if (msg) msg.remove();
+    });
 }
 
 // Initialize event listeners when DOM is ready
@@ -640,8 +683,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Load available models
-    loadModels();
+    // Load available models (local + cloud)
+    loadAvailableModels();
 
     // Load conversations list
     loadConversationsList();
@@ -767,6 +810,32 @@ async function loadUsageStats() {
         document.getElementById('session-tokens').textContent = sessionTokens.toLocaleString();
         document.getElementById('avg-tokens-per-chat').textContent = data.avg_per_chat.toLocaleString();
         document.getElementById('total-conversations').textContent = data.total_conversations;
+
+        // Per-model breakdown
+        const container = document.getElementById('per-model-breakdown');
+        if (container && data.per_model) {
+            const entries = Object.entries(data.per_model);
+            if (entries.length === 0) {
+                container.innerHTML = '<p class="per-model-empty">No usage data yet.</p>';
+            } else {
+                container.innerHTML = entries.map(([name, info]) => {
+                    const costLabel = info.is_local
+                        ? 'Free (local)'
+                        : (info.cost_per_1k_output === 0 ? 'Free tier' : '\u00a3' + info.estimated_cost.toFixed(4));
+                    return `
+                        <div class="per-model-card">
+                            <div class="per-model-name">${escapeHtml(name)}</div>
+                            <div class="per-model-stats">
+                                <div><span class="per-model-stat-value">${(info.tokens || 0).toLocaleString()}</span><span class="per-model-stat-label">tokens</span></div>
+                                <div><span class="per-model-stat-value">${info.requests || 0}</span><span class="per-model-stat-label">requests</span></div>
+                                <div><span class="per-model-stat-value">${info.avg_speed || 0}</span><span class="per-model-stat-label">avg tok/s</span></div>
+                                <div><span class="per-model-stat-value">${costLabel}</span><span class="per-model-stat-label">cost</span></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
     } catch (error) {
         console.error('Error loading usage stats:', error);
     }
