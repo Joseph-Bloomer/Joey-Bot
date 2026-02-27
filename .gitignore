@@ -6,3 +6,5 @@ instance/vectordb/
 logs/
 .claude/
 .env
+.coverage
+*.log
