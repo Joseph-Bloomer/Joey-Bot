@@ -93,7 +93,7 @@ class TestDefaultFallback:
 class TestValidCategories:
     """Every value in VALID_CATEGORIES must be accepted as-is."""
 
-    @pytest.mark.parametrize("category", ["NONE", "RECENT", "SEMANTIC", "PROFILE", "MULTI"])
+    @pytest.mark.parametrize("category", ["NONE", "RECENT", "SEMANTIC", "PROFILE", "MULTI", "WEB_SEARCH"])
     def test_each_valid_category_is_accepted(self, gatekeeper, category):
         """_parse_response() must return the exact category for each valid value."""
         raw = make_json_str(memory_need=category, confidence=0.8, retrieval_keys=[])
@@ -243,3 +243,42 @@ class TestNoisyInput:
         ]:
             result = gatekeeper._parse_response(raw)
             assert set(result.keys()) == {"memory_need", "retrieval_keys", "confidence"}
+
+
+# ---------------------------------------------------------------------------
+# WEB_SEARCH category
+# ---------------------------------------------------------------------------
+
+class TestWebSearchCategory:
+    """WEB_SEARCH was added for web search integration. These tests verify
+    it is accepted without breaking existing categories.
+    """
+
+    def test_web_search_in_valid_categories(self, gatekeeper):
+        """WEB_SEARCH must be in the VALID_CATEGORIES class attribute."""
+        assert "WEB_SEARCH" in MemoryGatekeeper.VALID_CATEGORIES
+
+    def test_web_search_parsed_correctly(self, gatekeeper):
+        """A response with memory_need=WEB_SEARCH should be accepted as-is."""
+        raw = make_json_str(
+            memory_need="WEB_SEARCH",
+            confidence=0.9,
+            retrieval_keys=["UK election results 2026"],
+        )
+        result = gatekeeper._parse_response(raw)
+        assert result["memory_need"] == "WEB_SEARCH"
+        assert result["confidence"] == pytest.approx(0.9)
+        assert result["retrieval_keys"] == ["UK election results 2026"]
+
+    def test_web_search_lowercase_normalised(self, gatekeeper):
+        """'web_search' (lowercase) should normalise to 'WEB_SEARCH'."""
+        raw = make_json_str(memory_need="web_search", confidence=0.8)
+        result = gatekeeper._parse_response(raw)
+        assert result["memory_need"] == "WEB_SEARCH"
+
+    def test_existing_categories_still_work(self, gatekeeper):
+        """Regression: adding WEB_SEARCH must not break the original five categories."""
+        for category in ["NONE", "RECENT", "SEMANTIC", "PROFILE", "MULTI"]:
+            raw = make_json_str(memory_need=category, confidence=0.7, retrieval_keys=[])
+            result = gatekeeper._parse_response(raw)
+            assert result["memory_need"] == category
