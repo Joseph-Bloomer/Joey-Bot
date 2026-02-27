@@ -130,6 +130,7 @@ async function sendMessage() {
             body: JSON.stringify({
                 message: message,
                 mode: currentMode,
+                model: currentModel,
                 search_mode: currentSearchMode,
                 conversation_id: currentConversationId,
                 history: conversationHistory
@@ -576,48 +577,34 @@ async function updateMemoryStats() {
 }
 
 // ====================
-// Model Switching Functions
+// Model Selector Functions
 // ====================
 
-async function loadModels() {
+async function loadAvailableModels() {
     try {
-        const response = await fetch('/models');
+        const response = await fetch('/api/available-models');
         const data = await response.json();
-        currentModel = data.current;
+        currentModel = data.default;
         const select = document.getElementById('model-select');
-        select.innerHTML = data.models.map(m =>
-            `<option value="${m.name}" ${m.name === currentModel ? 'selected' : ''}>${m.name}</option>`
+        select.innerHTML = data.models.map(name =>
+            `<option value="${name}" ${name === currentModel ? 'selected' : ''}>${name}</option>`
         ).join('');
+        updateCloudIndicator();
     } catch (error) {
-        console.error('Error loading models:', error);
+        console.error('Error loading available models:', error);
     }
 }
 
-async function switchModel(modelName) {
-    if (modelName === currentModel) return;
-    const select = document.getElementById('model-select');
-    select.disabled = true;
+function setModel(modelName) {
+    currentModel = modelName;
+    updateCloudIndicator();
+}
 
-    try {
-        const response = await fetch('/models/switch', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({model: modelName})
-        });
-        const result = await response.json();
-        if (result.success) {
-            currentModel = result.current;
-            // Start fresh chat when switching models
-            newChat();
-        } else {
-            select.value = currentModel;
-        }
-    } catch (error) {
-        console.error('Error switching model:', error);
-        select.value = currentModel;
-    } finally {
-        select.disabled = false;
-    }
+function updateCloudIndicator() {
+    const selector = document.querySelector('.model-selector');
+    if (!selector) return;
+    const isCloud = currentModel && !currentModel.toLowerCase().includes('local');
+    selector.classList.toggle('cloud-active', isCloud);
 }
 
 // Initialize event listeners when DOM is ready
@@ -641,7 +628,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Load available models
-    loadModels();
+    loadAvailableModels();
 
     // Load conversations list
     loadConversationsList();

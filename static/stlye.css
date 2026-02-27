@@ -359,6 +359,30 @@ body {
     display: flex;
     align-items: center;
     margin-right: 12px;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.cloud-badge {
+    display: none;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+    background: #6366f1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+}
+
+.model-selector.cloud-active .cloud-badge {
+    display: inline-block;
+}
+
+.model-selector.cloud-active #model-select {
+    border-color: #6366f1;
+    color: #4f46e5;
 }
 
 #model-select {
@@ -369,10 +393,15 @@ body {
     font-size: 13px;
     cursor: pointer;
     min-width: 120px;
+    transition: border-color 0.2s, color 0.2s;
 }
 
 #model-select:hover {
     border-color: #19c37d;
+}
+
+.model-selector.cloud-active #model-select:hover {
+    border-color: #4f46e5;
 }
 
 #model-select:disabled {

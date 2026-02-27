@@ -1,5 +1,6 @@
 """Flask application entry point for Joey-Bot."""
 
+import os
 import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
@@ -411,6 +412,17 @@ def get_pipeline_runs():
 def get_pipeline_latest():
     """Get the most recent pipeline run."""
     return jsonify(_pipeline_runs[0] if _pipeline_runs else None)
+
+
+@app.route('/api/available-models', methods=['GET'])
+def get_available_models():
+    """Return available model display names for the frontend model selector."""
+    default = config.LOCAL_MODEL_DISPLAY_NAME
+    models = [default]
+    for name, cfg in config.CLOUD_MODELS.items():
+        if os.environ.get(cfg["api_key_env"], ""):
+            models.append(name)
+    return jsonify({"models": models, "default": default})
 
 
 @app.route('/conversations', methods=['GET'])
