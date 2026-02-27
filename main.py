@@ -1,5 +1,6 @@
 """Flask application entry point for Joey-Bot."""
 
+import os
 import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
@@ -8,6 +9,7 @@ from sqlalchemy import func
 
 from app.data.database import db, Conversation, Message, UserProfile, TokenUsage, init_db
 from app.models.ollama_wrapper import OllamaWrapper
+from app.models.cloud_wrapper import CloudWrapper
 from app.services.chat_service import ChatService
 from app.services.memory_service import MemoryService
 from app.services.gatekeeper import MemoryGatekeeper
@@ -35,20 +37,35 @@ init_db(app)
 prompts = load_prompts()
 
 # Initialize services (dependency injection)
-llm = OllamaWrapper(
+local_llm = OllamaWrapper(
     model=config.LITELLM_CHAT_MODEL,
     embedding_model=config.LITELLM_EMBEDDING_MODEL,
     api_base="http://localhost:11434"
 )
-memory_service = MemoryService(llm, prompts, config.VECTOR_STORE_PATH)
+memory_service = MemoryService(local_llm, prompts, config.VECTOR_STORE_PATH)
 gatekeeper = MemoryGatekeeper(
-    llm, prompts,
+    local_llm, prompts,
     max_tokens=config.GATEKEEPER_MAX_TOKENS,
     timeout=config.GATEKEEPER_TIMEOUT
 )
-chat_service = ChatService(llm, memory_service, prompts)
+chat_service = ChatService(local_llm, memory_service, prompts)
 reranker = HeuristicReranker()
+
+# Build model registry: local model + any configured cloud models
+model_registry = {"Gemma 3 4B (Local)": local_llm}
+for display_name, model_cfg in config.CLOUD_MODELS.items():
+    api_key = os.environ.get(model_cfg["api_key_env"], "")
+    if api_key:
+        model_registry[display_name] = CloudWrapper(
+            provider=model_cfg["provider"],
+            model=model_cfg["model"],
+            api_key=api_key,
+        )
+        logger.info(f"Cloud model registered: {display_name}")
+
 orchestrator = ChatOrchestrator(
+    local_llm=local_llm,
+    model_registry=model_registry,
     gatekeeper=gatekeeper,
     retriever=memory_service.retriever,
     chat_service=chat_service,
@@ -56,6 +73,7 @@ orchestrator = ChatOrchestrator(
     reranker=reranker,
 )
 lifecycle = MemoryLifecycle(store=memory_service.store, memory_service=memory_service)
+logger.info(f"Model registry: {list(model_registry.keys())}")
 
 # Pipeline run history (in-memory, not persisted)
 _pipeline_runs: list = []
@@ -224,6 +242,7 @@ def chat():
                 recent_messages=recent_messages,
                 mode=data.get('mode', 'normal'),
                 search_mode=data.get('search_mode', 'auto'),
+                model=data.get('model', 'Gemma 3 4B (Local)'),
             )
         except Exception as e:
             logger.error("Unhandled error in /chat stream: %s", e)
@@ -240,8 +259,8 @@ def chat():
 @app.route('/models', methods=['GET'])
 def list_models():
     """List available Ollama models."""
-    models = llm.list_available_models()
-    current = llm.get_current_model()
+    models = local_llm.list_available_models()
+    current = local_llm.get_current_model()
     return jsonify({'models': models, 'current': current})
 
 
@@ -253,10 +272,10 @@ def switch_model():
     if not model_name:
         return jsonify({'error': 'Model name required'}), 400
 
-    success = llm.switch_model(model_name)
+    success = local_llm.switch_model(model_name)
     if success:
         logger.info(f"Switched to model: {model_name}")
-        return jsonify({'success': True, 'current': llm.get_current_model()})
+        return jsonify({'success': True, 'current': local_llm.get_current_model()})
     return jsonify({'error': 'Failed to switch model'}), 500
 
 

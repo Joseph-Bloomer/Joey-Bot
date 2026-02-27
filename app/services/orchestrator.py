@@ -26,8 +26,10 @@ class ChatOrchestrator:
       7. POST_PROCESS — update access metadata, extract facts
     """
 
-    def __init__(self, gatekeeper, retriever, chat_service, memory_service,
-                 reranker=None, compressor=None):
+    def __init__(self, local_llm, model_registry, gatekeeper, retriever,
+                 chat_service, memory_service, reranker=None, compressor=None):
+        self.local_llm = local_llm
+        self.model_registry = model_registry  # {display_name: BaseLLM instance}
         self.gatekeeper = gatekeeper
         self.retriever = retriever
         self.chat_service = chat_service
@@ -44,6 +46,7 @@ class ChatOrchestrator:
         recent_messages: List[Dict[str, str]],
         mode: str = "normal",
         search_mode: str = "auto",
+        model: str = None,
     ) -> Generator[str, None, None]:
         """
         Run the full pipeline and yield SSE-formatted tokens.
@@ -54,6 +57,7 @@ class ChatOrchestrator:
             recent_messages: Pre-loaded recent message dicts.
             mode: Response mode (normal/concise/logic).
             search_mode: Web search mode — "off", "auto", or "on".
+            model: Display name of model to use for generation (resolved via registry).
 
         Yields:
             SSE data strings: {"token": "..."}, {"searching": true}, and {"done": true}.
@@ -64,6 +68,7 @@ class ChatOrchestrator:
             "recent_messages": recent_messages,
             "mode": mode,
             "search_mode": search_mode,
+            "model": model,
             "classification": {},
             "candidates": [],
             "scored_candidates": [],
@@ -371,10 +376,19 @@ class ChatOrchestrator:
     # Stage 5: GENERATE (yields SSE)
     # ------------------------------------------------------------------
 
+    def _resolve_llm(self, model_name: Optional[str]):
+        """Resolve a model display name to a BaseLLM instance."""
+        if model_name and model_name in self.model_registry:
+            return self.model_registry[model_name]
+        if model_name:
+            logger.warning(f"[GENERATE] Model '{model_name}' not in registry, falling back to local")
+        return self.local_llm
+
     def _stage_generate(self, ctx: Dict[str, Any]) -> Generator[str, None, None]:
         t0 = time.perf_counter()
         try:
-            token_generator = self.chat_service.llm.generate(
+            llm = self._resolve_llm(ctx.get("model"))
+            token_generator = llm.generate(
                 ctx["assembled_prompt"], stream=True
             )
             for token in token_generator:
