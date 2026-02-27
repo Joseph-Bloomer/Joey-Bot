@@ -80,8 +80,13 @@ def _record_pipeline_run(orch):
     if memory_need in ("NONE", "RECENT", "PROFILE"):
         skip_stages.update(("retrieve", "score"))
 
+    # Web search stage: skipped unless it ran
+    web_results = ctx.get("web_results")
+    if web_results is None:
+        skip_stages.add("web_search")
+
     stages = {}
-    stage_names = ["classify", "retrieve", "score", "build_context", "generate", "post_process"]
+    stage_names = ["classify", "web_search", "retrieve", "score", "build_context", "generate", "post_process"]
     for name in stage_names:
         if name in error_stages:
             err = next((e for e in errors if e["stage"].lower() == name), {})
@@ -98,6 +103,12 @@ def _record_pipeline_run(orch):
     if stages["classify"]["status"] == "success":
         conf = classification.get("confidence", 0)
         stages["classify"]["detail"] = f"{memory_need} (conf={conf:.2f})"
+
+    if stages["web_search"]["status"] == "success":
+        wr = ctx.get("web_results") or {}
+        stages["web_search"]["detail"] = (
+            f"query=\"{wr.get('query', '')}\" results={wr.get('result_count', 0)}"
+        )
 
     if stages["retrieve"]["status"] == "success":
         stages["retrieve"]["detail"] = f"{len(ctx.get('candidates', []))} candidates"
@@ -212,6 +223,7 @@ def chat():
                 conversation_id=conversation_id,
                 recent_messages=recent_messages,
                 mode=data.get('mode', 'normal'),
+                search_mode=data.get('search_mode', 'auto'),
             )
         except Exception as e:
             logger.error("Unhandled error in /chat stream: %s", e)

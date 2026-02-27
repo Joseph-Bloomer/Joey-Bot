@@ -1,4 +1,4 @@
-"""Chat pipeline orchestrator — 6-stage pipeline for message processing."""
+"""Chat pipeline orchestrator — 7-stage pipeline for message processing."""
 
 import json
 import time
@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Generator
 
 from app.prompts import get_mode_prefix
 from app.data.database import Conversation, Message
+from app.services.web_search import WebSearchService
 from utils.logger import get_logger
 import config
 
@@ -15,13 +16,14 @@ logger = get_logger()
 
 class ChatOrchestrator:
     """
-    Orchestrates the chat pipeline through 6 sequential stages:
-      1. CLASSIFY  — gatekeeper decides if memory retrieval is needed
-      2. RETRIEVE  — hybrid dense + BM25 search
-      3. SCORE     — heuristic reranker (or passthrough if disabled)
-      4. BUILD_CONTEXT — assemble the LLM prompt
-      5. GENERATE  — stream tokens via SSE
-      6. POST_PROCESS — update access metadata, extract facts
+    Orchestrates the chat pipeline through 7 sequential stages:
+      1. CLASSIFY    — gatekeeper decides if memory retrieval is needed
+      2. WEB_SEARCH  — optional Tavily web search (based on mode + classification)
+      3. RETRIEVE    — hybrid dense + BM25 search
+      4. SCORE       — heuristic reranker (or passthrough if disabled)
+      5. BUILD_CONTEXT — assemble the LLM prompt
+      6. GENERATE    — stream tokens via SSE
+      7. POST_PROCESS — update access metadata, extract facts
     """
 
     def __init__(self, gatekeeper, retriever, chat_service, memory_service,
@@ -32,6 +34,7 @@ class ChatOrchestrator:
         self.memory_service = memory_service
         self.reranker = reranker      # HeuristicReranker instance (or None)
         self.compressor = compressor  # Future placeholder
+        self.web_search = WebSearchService()
         self._last_pipeline_ctx: Optional[Dict[str, Any]] = None
 
     def process_message(
@@ -40,6 +43,7 @@ class ChatOrchestrator:
         conversation_id: Optional[int],
         recent_messages: List[Dict[str, str]],
         mode: str = "normal",
+        search_mode: str = "auto",
     ) -> Generator[str, None, None]:
         """
         Run the full pipeline and yield SSE-formatted tokens.
@@ -49,18 +53,21 @@ class ChatOrchestrator:
             conversation_id: Saved conversation ID (or None).
             recent_messages: Pre-loaded recent message dicts.
             mode: Response mode (normal/concise/logic).
+            search_mode: Web search mode — "off", "auto", or "on".
 
         Yields:
-            SSE data strings: {"token": "..."} and {"done": true}.
+            SSE data strings: {"token": "..."}, {"searching": true}, and {"done": true}.
         """
         ctx: Dict[str, Any] = {
             "user_message": user_message,
             "conversation_id": conversation_id,
             "recent_messages": recent_messages,
             "mode": mode,
+            "search_mode": search_mode,
             "classification": {},
             "candidates": [],
             "scored_candidates": [],
+            "web_results": None,
             "context_parts": {},
             "assembled_prompt": "",
             "response_text": "",
@@ -70,6 +77,7 @@ class ChatOrchestrator:
 
         # Stages 1-4 run synchronously before streaming
         self._stage_classify(ctx)
+        yield from self._stage_web_search(ctx)
         self._stage_retrieve(ctx)
         self._stage_score(ctx)
         self._stage_build_context(ctx)
@@ -117,6 +125,63 @@ class ChatOrchestrator:
             f"[CLASSIFY] {c['memory_need']} "
             f"(conf={c.get('confidence', 0):.2f}, {elapsed:.1f}ms)"
         )
+
+    # ------------------------------------------------------------------
+    # Stage 1.5: WEB_SEARCH
+    # ------------------------------------------------------------------
+
+    def _stage_web_search(self, ctx: Dict[str, Any]) -> Generator[str, None, None]:
+        """Execute web search if gatekeeper or user toggle requests it."""
+        t0 = time.perf_counter()
+        search_mode = ctx.get("search_mode", "auto")
+        memory_need = ctx["classification"].get("memory_need", "SEMANTIC")
+        retrieval_keys = ctx["classification"].get("retrieval_keys", [])
+
+        # Determine whether to search
+        should_search = False
+        if search_mode == "off":
+            pass
+        elif search_mode == "on":
+            should_search = True
+        elif search_mode == "auto":
+            should_search = (memory_need == "WEB_SEARCH")
+
+        if not should_search:
+            elapsed = (time.perf_counter() - t0) * 1000
+            ctx["timings"]["web_search"] = elapsed
+            logger.info(f"[WEB_SEARCH] skipped (mode={search_mode}, memory_need={memory_need}, {elapsed:.1f}ms)")
+            return
+
+        if not self.web_search.is_available:
+            elapsed = (time.perf_counter() - t0) * 1000
+            ctx["timings"]["web_search"] = elapsed
+            logger.warning(f"[WEB_SEARCH] unavailable (missing API key or disabled, {elapsed:.1f}ms)")
+            return
+
+        # Signal frontend that a search is starting
+        yield f'data: {json.dumps({"searching": True})}\n\n'
+
+        try:
+            query = " ".join(retrieval_keys) if retrieval_keys else ctx["user_message"]
+            web_results = self.web_search.search(query)
+            ctx["web_results"] = web_results
+
+            elapsed = (time.perf_counter() - t0) * 1000
+            ctx["timings"]["web_search"] = elapsed
+
+            result_count = web_results.get("result_count", 0)
+            error = web_results.get("error")
+            if error:
+                logger.warning(f'[WEB_SEARCH] query="{query}" error={error} ({elapsed:.1f}ms)')
+            else:
+                logger.info(f'[WEB_SEARCH] query="{query}" results={result_count} ({elapsed:.1f}ms)')
+
+        except Exception as e:
+            elapsed = (time.perf_counter() - t0) * 1000
+            ctx["timings"]["web_search"] = elapsed
+            ctx["web_results"] = None
+            ctx["errors"].append({"stage": "WEB_SEARCH", "error": str(e), "fallback": "no web results"})
+            logger.warning(f"[WEB_SEARCH] Error: {e} ({elapsed:.1f}ms)")
 
     # ------------------------------------------------------------------
     # Stage 2: RETRIEVE
@@ -268,6 +333,11 @@ class ChatOrchestrator:
             # Current turn
             current_turn = f"User: {ctx['user_message']}\nAssistant:"
 
+            # Web search context
+            web_context = ""
+            if ctx.get("web_results"):
+                web_context = self.web_search.format_for_prompt(ctx["web_results"])
+
             # Assemble via ChatService.build_prompt
             ctx["assembled_prompt"] = self.chat_service.build_prompt(
                 mode_prefix=mode_prefix,
@@ -276,6 +346,7 @@ class ChatOrchestrator:
                 rolling_summary=rolling_summary,
                 recent_history=recent_history,
                 current_turn=current_turn,
+                web_context=web_context,
             )
 
             ctx["context_parts"] = {
@@ -284,6 +355,7 @@ class ChatOrchestrator:
                 "memories": len(ctx["scored_candidates"]),
                 "rolling_summary": bool(rolling_summary),
                 "recent_messages": len(ctx["recent_messages"]),
+                "web_context": bool(web_context),
             }
 
         except Exception as e:
@@ -385,10 +457,23 @@ class ChatOrchestrator:
         if not self._last_pipeline_ctx:
             return None
         ctx = self._last_pipeline_ctx
+
+        # Web search diagnostics
+        web_results = ctx.get("web_results")
+        web_search_info = {"performed": False}
+        if web_results is not None:
+            web_search_info = {
+                "performed": True,
+                "query": web_results.get("query", ""),
+                "result_count": web_results.get("result_count", 0),
+                "error": web_results.get("error"),
+            }
+
         return {
             "timings": ctx.get("timings", {}),
             "errors": ctx.get("errors", []),
             "classification": ctx.get("classification", {}),
             "candidate_count": len(ctx.get("scored_candidates", [])),
             "prompt_length": len(ctx.get("assembled_prompt", "")),
+            "web_search": web_search_info,
         }

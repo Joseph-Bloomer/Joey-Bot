@@ -56,6 +56,7 @@ class ChatService:
         rolling_summary: str,
         recent_history: str,
         current_turn: str,
+        web_context: str = "",
     ) -> str:
         """
         Assemble the LLM prompt from pre-built parts.
@@ -70,6 +71,15 @@ class ChatService:
 
         if user_profile:
             parts.append(f"[User Profile]: {user_profile}")
+
+        if web_context:
+            parts.append(web_context)
+            parts.append(
+                "[Instruction]: You have access to the above web search results. "
+                "Use them to inform your response. Cite sources inline "
+                "(e.g., 'According to BBC News, ...') and list all sources "
+                "with their URLs at the end of your response."
+            )
 
         if memories:
             parts.append(f"[Relevant Memory]:\n{memories}")
