@@ -89,9 +89,9 @@ JSON_GENERATION_TEMPERATURE = 0.3      # Temperature for structured JSON output 
 
 # --- Cloud Models ---
 CLOUD_MODELS = {
-    "Gemini 2.0 Flash": {
+    "Gemini 2.5 Flash": {
         "provider": "gemini",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-2.5-flash",
         "api_key_env": "GEMINI_API_KEY",
         "cost_per_1k_input": 0.0,
         "cost_per_1k_output": 0.0,
