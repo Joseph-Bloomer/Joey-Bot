@@ -87,6 +87,24 @@ LOG_LEVEL = "INFO"                     # Application log level
 # --- LLM Generation ---
 JSON_GENERATION_TEMPERATURE = 0.3      # Temperature for structured JSON output tasks
 
+# --- Cloud Models ---
+CLOUD_MODELS = {
+    "Gemini 2.0 Flash": {
+        "provider": "gemini",
+        "model": "gemini-2.0-flash",
+        "api_key_env": "GEMINI_API_KEY",
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0,
+    },
+}
+
+CLOUD_ENABLED = any(
+    os.environ.get(m["api_key_env"], "")
+    for m in CLOUD_MODELS.values()
+)
+
+LOCAL_MODEL_DISPLAY_NAME = "Gemma 3 4B (Local)"
+
 # --- Web Search ---
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 WEB_SEARCH_ENABLED = True                    # Master switch for web search feature

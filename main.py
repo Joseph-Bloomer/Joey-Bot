@@ -290,6 +290,7 @@ def log_token_usage():
     data = request.json
     usage = TokenUsage(
         conversation_id=data.get('conversation_id'),
+        model_name=data.get('model_name', config.LOCAL_MODEL_DISPLAY_NAME),
         tokens_output=data.get('tokens_output', 0),
         tokens_per_second=data.get('tokens_per_second', 0),
         duration_ms=data.get('duration_ms', 0)
@@ -311,7 +312,7 @@ def log_token_usage():
 
 @app.route('/usage-stats', methods=['GET'])
 def get_usage_stats():
-    """Get global usage statistics."""
+    """Get global and per-model usage statistics."""
     # Total tokens all-time
     total_tokens = db.session.query(func.sum(TokenUsage.tokens_output)).scalar() or 0
 
@@ -330,11 +331,44 @@ def get_usage_stats():
     ).filter(TokenUsage.tokens_per_second > 0).scalar()
     avg_tokens_per_second = round(avg_speed or 0, 1)
 
+    # Per-model breakdown
+    model_rows = db.session.query(
+        TokenUsage.model_name,
+        func.sum(TokenUsage.tokens_output),
+        func.count(TokenUsage.id),
+        func.avg(TokenUsage.tokens_per_second),
+    ).group_by(TokenUsage.model_name).all()
+
+    # Build cost lookup from config
+    cost_lookup = {}
+    for display_name, cfg in config.CLOUD_MODELS.items():
+        cost_lookup[display_name] = {
+            "cost_per_1k_input": cfg.get("cost_per_1k_input", 0.0),
+            "cost_per_1k_output": cfg.get("cost_per_1k_output", 0.0),
+        }
+
+    per_model = {}
+    for model_name, tokens, count, avg_spd in model_rows:
+        name = model_name or config.LOCAL_MODEL_DISPLAY_NAME
+        tokens = tokens or 0
+        is_local = name == config.LOCAL_MODEL_DISPLAY_NAME
+        costs = cost_lookup.get(name, {"cost_per_1k_input": 0.0, "cost_per_1k_output": 0.0})
+        estimated_cost = round((tokens / 1000) * costs["cost_per_1k_output"], 4)
+        per_model[name] = {
+            "tokens": tokens,
+            "requests": count or 0,
+            "avg_speed": round(avg_spd or 0, 1),
+            "is_local": is_local,
+            "cost_per_1k_output": costs["cost_per_1k_output"],
+            "estimated_cost": estimated_cost,
+        }
+
     return jsonify({
         'total_tokens': total_tokens,
         'total_conversations': total_conversations,
         'avg_per_chat': avg_per_chat,
-        'avg_tokens_per_second': avg_tokens_per_second
+        'avg_tokens_per_second': avg_tokens_per_second,
+        'per_model': per_model,
     })
 
 

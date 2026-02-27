@@ -937,3 +937,60 @@ body {
 .save-status.error {
     color: #ef4444;
 }
+
+/* Per-Model Usage Breakdown */
+.per-model-heading {
+    font-size: 16px;
+    font-weight: 600;
+    color: #202123;
+    margin-bottom: 16px;
+}
+
+.per-model-empty {
+    color: #8e8ea0;
+    font-size: 13px;
+    font-style: italic;
+}
+
+.per-model-card {
+    background: #f7f7f8;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+
+.per-model-card:last-child {
+    margin-bottom: 0;
+}
+
+.per-model-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #202123;
+    margin-bottom: 10px;
+}
+
+.per-model-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.per-model-stat {
+    text-align: center;
+}
+
+.per-model-stat-value {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+    color: #202123;
+}
+
+.per-model-stat-label {
+    display: block;
+    font-size: 11px;
+    color: #8e8ea0;
+    text-transform: uppercase;
+    margin-top: 2px;
+}

@@ -76,6 +76,7 @@ async function logTokenUsage(tokens, tokensPerSecond, durationMs) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 conversation_id: currentConversationId,
+                model_name: currentModel || undefined,
                 tokens_output: tokens,
                 tokens_per_second: Math.round(tokensPerSecond * 10) / 10,
                 duration_ms: Math.round(durationMs)
@@ -767,6 +768,49 @@ async function loadUsageStats() {
         document.getElementById('session-tokens').textContent = sessionTokens.toLocaleString();
         document.getElementById('avg-tokens-per-chat').textContent = data.avg_per_chat.toLocaleString();
         document.getElementById('total-conversations').textContent = data.total_conversations;
+
+        // Render per-model breakdown
+        const container = document.getElementById('per-model-breakdown');
+        if (container && data.per_model) {
+            const models = Object.entries(data.per_model);
+            if (models.length === 0) {
+                container.innerHTML = '<p class="per-model-empty">No usage data yet.</p>';
+            } else {
+                container.innerHTML = models.map(([name, info]) => {
+                    let costLabel;
+                    if (info.is_local) {
+                        costLabel = 'Free (local)';
+                    } else if (info.cost_per_1k_output === 0) {
+                        costLabel = 'Free tier';
+                    } else {
+                        costLabel = `£${info.estimated_cost.toFixed(4)}`;
+                    }
+                    return `
+                        <div class="per-model-card">
+                            <div class="per-model-name">${escapeHtml(name)}</div>
+                            <div class="per-model-stats">
+                                <div class="per-model-stat">
+                                    <span class="per-model-stat-value">${info.tokens.toLocaleString()}</span>
+                                    <span class="per-model-stat-label">tokens</span>
+                                </div>
+                                <div class="per-model-stat">
+                                    <span class="per-model-stat-value">${info.requests}</span>
+                                    <span class="per-model-stat-label">requests</span>
+                                </div>
+                                <div class="per-model-stat">
+                                    <span class="per-model-stat-value">${info.avg_speed}</span>
+                                    <span class="per-model-stat-label">tok/s avg</span>
+                                </div>
+                                <div class="per-model-stat">
+                                    <span class="per-model-stat-value">${costLabel}</span>
+                                    <span class="per-model-stat-label">cost</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
     } catch (error) {
         console.error('Error loading usage stats:', error);
     }
