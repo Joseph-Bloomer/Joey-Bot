@@ -58,6 +58,8 @@ for display_name, model_cfg in config.CLOUD_MODELS.items():
     else:
         logger.info(f"[INIT] Cloud model skipped (no API key): {display_name}")
 
+logger.info(f"[INIT] Model registry: {list(model_registry.keys())}")
+
 memory_service = MemoryService(local_llm, prompts, config.VECTOR_STORE_PATH)
 gatekeeper = MemoryGatekeeper(
     local_llm, prompts,
