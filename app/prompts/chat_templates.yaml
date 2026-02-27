@@ -64,6 +64,10 @@ memory_classification: |
   - SEMANTIC: references to past conversations, "remember when", personal facts, callbacks to earlier topics
   - PROFILE: asks about user preferences, name, personal details
   - MULTI: complex queries needing both semantic search and profile data
+  - WEB_SEARCH: current events, recent news, real-time data (weather, prices, scores), factual questions that might be outdated in training data, or anything that explicitly references searching or looking something up online. Examples: "What's the latest news on...", "What's the weather in London?", "Who won the match yesterday?", "Can you look up...", "What's the current price of..."
+
+  When memory_need is WEB_SEARCH, retrieval_keys should contain concise search engine keywords
+  (e.g., for "What happened in the UK election yesterday?" return retrieval_keys: ["UK election results 2026"]).
 
   Recent conversation:
   {recent_context}

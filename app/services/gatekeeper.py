@@ -21,7 +21,7 @@ class MemoryGatekeeper:
     or simple questions that don't benefit from semantic memory context.
     """
 
-    VALID_CATEGORIES = {"NONE", "RECENT", "SEMANTIC", "PROFILE", "MULTI"}
+    VALID_CATEGORIES = {"NONE", "RECENT", "SEMANTIC", "PROFILE", "MULTI", "WEB_SEARCH"}
 
     def __init__(
         self,
