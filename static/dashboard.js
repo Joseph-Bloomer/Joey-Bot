@@ -64,7 +64,7 @@ async function refreshAll() {
 }
 
 // ── Stage Cards ────────────────────────────────────────────────────
-const STAGE_NAMES = ['classify', 'retrieve', 'score', 'build_context', 'generate', 'post_process'];
+const STAGE_NAMES = ['classify', 'web_search', 'retrieve', 'score', 'build_context', 'generate', 'post_process'];
 
 function renderStageCards(run) {
     const subtitle = document.getElementById('pipeline-subtitle');
@@ -157,6 +157,7 @@ const CLASS_COLORS = {
     SEMANTIC: 'badge-semantic',
     PROFILE: 'badge-profile',
     MULTI: 'badge-multi',
+    WEB_SEARCH: 'badge-web-search',
 };
 
 function renderPipelineRuns(runs) {
@@ -176,9 +177,15 @@ function renderPipelineRuns(runs) {
             ? '<span class="error-count">' + errCount + '</span>'
             : '<span class="no-errors">0</span>';
 
+        // Web search indicator — check if web_search stage ran successfully
+        const webStage = (run.stages && run.stages.web_search) || {};
+        const webIcon = webStage.status === 'success'
+            ? ' <span class="web-search-indicator" title="Web search used">&#128269;</span>'
+            : '';
+
         return '<tr>' +
             '<td>' + escapeHtml(formatTime(run.timestamp)) + '</td>' +
-            '<td class="msg-cell" title="' + escapeHtml(run.user_message || '') + '">' + escapeHtml(truncate(run.user_message, 50)) + '</td>' +
+            '<td class="msg-cell" title="' + escapeHtml(run.user_message || '') + '">' + escapeHtml(truncate(run.user_message, 50)) + webIcon + '</td>' +
             '<td><span class="class-badge ' + badgeClass + '">' + escapeHtml(need) + '</span></td>' +
             '<td>' + (run.candidate_count || 0) + '</td>' +
             '<td>' + (run.total_time_ms || 0) + '</td>' +

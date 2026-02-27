@@ -396,6 +396,11 @@ body {
     color: #7c3aed;
 }
 
+.badge-web-search {
+    background: #e0f2fe;
+    color: #0284c7;
+}
+
 /* Error indicators */
 .error-count {
     display: inline-flex;
@@ -412,6 +417,12 @@ body {
 
 .no-errors {
     color: #8e8ea0;
+}
+
+.web-search-indicator {
+    font-size: 13px;
+    margin-left: 6px;
+    vertical-align: middle;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */
