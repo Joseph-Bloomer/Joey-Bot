@@ -3,6 +3,7 @@ let currentConversationId = null;  // null = unsaved, number = saved
 let conversationHistory = [];      // in-memory history for context
 let currentMode = 'normal';
 let currentModel = null;
+let defaultModelName = null;       // set from /api/available-models
 let currentSearchMode = 'auto';    // "off", "auto", or "on"
 
 // Store raw text for streaming messages to enable proper formatting
@@ -103,24 +104,33 @@ function incrementTokenCount() {
     tokenCount++;
 }
 
-async function sendMessage() {
+async function sendMessage(retryMessage = null, retryModel = null) {
     const input = document.getElementById('user-input');
-    const message = input.value.trim();
+    const isRetry = retryMessage !== null;
+    const message = isRetry ? retryMessage : input.value.trim();
+    const modelToUse = retryModel !== null ? retryModel : currentModel;
 
     if (!message) return;
 
-    const welcome = document.querySelector('.welcome-message');
-    if (welcome) welcome.remove();
+    // Dismiss any existing cloud error fallbacks
+    dismissAllCloudErrors();
 
-    appendMessage('user', message);
-    input.value = '';
-    input.style.height = 'auto';
+    if (!isRetry) {
+        const welcome = document.querySelector('.welcome-message');
+        if (welcome) welcome.remove();
+
+        appendMessage('user', message);
+        input.value = '';
+        input.style.height = 'auto';
+    }
 
     input.disabled = true;
     document.getElementById('send-btn').disabled = true;
 
     const aiMessageId = 'ai-msg-' + Date.now();
     appendStreamingMessage(aiMessageId);
+
+    let cloudErrorOccurred = false;
 
     try {
         console.log('Sending request...');
@@ -130,6 +140,7 @@ async function sendMessage() {
             body: JSON.stringify({
                 message: message,
                 mode: currentMode,
+                model: modelToUse,
                 search_mode: currentSearchMode,
                 conversation_id: currentConversationId,
                 history: conversationHistory
@@ -158,7 +169,10 @@ async function sendMessage() {
                 if (line.startsWith('data: ')) {
                     const data = JSON.parse(line.slice(6));
 
-                    if (data.error) {
+                    if (data.cloud_error) {
+                        cloudErrorOccurred = true;
+                        showCloudErrorFallback(aiMessageId, data, message);
+                    } else if (data.error) {
                         updateStreamingMessage(aiMessageId, data.error, true);
                     } else if (data.searching) {
                         showSearchingIndicator(aiMessageId);
@@ -172,37 +186,85 @@ async function sendMessage() {
             }
         }
 
-        // After streaming completes, save to history
-        const assistantResponse = streamingRawText[aiMessageId] || '';
+        // Only save to history if generation succeeded
+        if (!cloudErrorOccurred) {
+            const assistantResponse = streamingRawText[aiMessageId] || '';
 
-        // Add to local history
-        conversationHistory.push({ role: 'user', content: message });
-        conversationHistory.push({ role: 'assistant', content: assistantResponse });
+            conversationHistory.push({ role: 'user', content: message });
+            conversationHistory.push({ role: 'assistant', content: assistantResponse });
 
-        // If this is a saved conversation, persist messages to DB
-        if (currentConversationId) {
-            await saveMessageToDb(currentConversationId, 'user', message);
-            await saveMessageToDb(currentConversationId, 'assistant', assistantResponse);
-            // Refresh list to update last_updated
-            loadConversationsList();
-            // Update memory stats
-            updateMemoryStats();
+            if (currentConversationId) {
+                await saveMessageToDb(currentConversationId, 'user', message);
+                await saveMessageToDb(currentConversationId, 'assistant', assistantResponse);
+                loadConversationsList();
+                updateMemoryStats();
+            }
+
+            updateCurrentChatUI();
         }
-
-        // Update current chat section visibility
-        updateCurrentChatUI();
 
     } catch (error) {
         console.error('Error:', error);
         updateStreamingMessage(aiMessageId, 'Error: ' + error.message, true);
     } finally {
-        // Stop token speed tracking
         stopTokenSpeedTracking();
 
         input.disabled = false;
         document.getElementById('send-btn').disabled = false;
         input.focus();
     }
+}
+
+function showCloudErrorFallback(aiMessageId, errorData, failedMessage) {
+    const messageDiv = document.getElementById(aiMessageId);
+    if (!messageDiv) return;
+
+    messageDiv.classList.add('cloud-error');
+    const content = messageDiv.querySelector('.message-content');
+
+    const errorTypeLabels = {
+        auth_error: 'Authentication Error',
+        rate_limit: 'Rate Limit',
+        network_error: 'Network Error',
+        unknown: 'Error',
+    };
+    const label = errorTypeLabels[errorData.error_type] || 'Error';
+
+    content.innerHTML = `
+        <div class="cloud-error-fallback">
+            <div class="cloud-error-header">
+                <span class="cloud-error-badge">${escapeHtml(label)}</span>
+                <span class="cloud-error-model">${escapeHtml(errorData.model || '')}</span>
+            </div>
+            <p class="cloud-error-message">${escapeHtml(errorData.message)}</p>
+            <div class="cloud-error-actions">
+                <button class="cloud-error-btn retry-btn" id="retry-${aiMessageId}">Retry</button>
+                <button class="cloud-error-btn local-btn" id="local-${aiMessageId}">Use Local Model</button>
+            </div>
+        </div>
+    `;
+
+    // Attach click handlers via JS (avoids inline onclick with escaping issues)
+    document.getElementById(`retry-${aiMessageId}`).addEventListener('click', () => {
+        const parentMsg = document.getElementById(aiMessageId);
+        if (parentMsg) parentMsg.remove();
+        sendMessage(failedMessage, errorData.model);
+    });
+    document.getElementById(`local-${aiMessageId}`).addEventListener('click', () => {
+        const parentMsg = document.getElementById(aiMessageId);
+        if (parentMsg) parentMsg.remove();
+        sendMessage(failedMessage, defaultModelName);
+    });
+
+    const chatBox = document.getElementById('chat-box');
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function dismissAllCloudErrors() {
+    document.querySelectorAll('.cloud-error-fallback').forEach(el => {
+        const msgDiv = el.closest('.message');
+        if (msgDiv) msgDiv.remove();
+    });
 }
 
 async function saveMessageToDb(conversationId, role, content) {
@@ -584,6 +646,7 @@ async function loadModels() {
         const response = await fetch('/models');
         const data = await response.json();
         currentModel = data.current;
+        defaultModelName = data.current;
         const select = document.getElementById('model-select');
         select.innerHTML = data.models.map(m =>
             `<option value="${m.name}" ${m.name === currentModel ? 'selected' : ''}>${m.name}</option>`

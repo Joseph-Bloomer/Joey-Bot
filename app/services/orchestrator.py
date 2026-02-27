@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Generator
 
 from app.prompts import get_mode_prefix
 from app.data.database import Conversation, Message
+from app.models.cloud_wrapper import CloudGenerationError
 from app.services.web_search import WebSearchService
 from utils.logger import get_logger
 import config
@@ -85,8 +86,9 @@ class ChatOrchestrator:
         # Stage 5 is a generator — yield from it
         yield from self._stage_generate(ctx)
 
-        # Stage 6 runs after streaming completes
-        self._stage_post_process(ctx)
+        # Stage 6 runs after streaming completes (skip if generation failed)
+        if not ctx.get("cloud_failed"):
+            self._stage_post_process(ctx)
 
         # Log pipeline summary
         self._log_pipeline_summary(ctx)
@@ -382,6 +384,17 @@ class ChatOrchestrator:
                 yield f"data: {json.dumps({'token': token})}\n\n"
 
             yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except CloudGenerationError as e:
+            ctx["cloud_failed"] = True
+            ctx["errors"].append({
+                "stage": "GENERATE",
+                "error": f"[{e.error_type}] {e.message}",
+                "fallback": "cloud_error event",
+            })
+            model_name = ctx.get("model", "unknown")
+            yield f'data: {json.dumps({"cloud_error": True, "error_type": e.error_type, "message": e.message, "model": model_name})}\n\n'
+            logger.warning(f"[GENERATE] Cloud error ({e.error_type}): {e.message}")
 
         except Exception as e:
             ctx["errors"].append({"stage": "GENERATE", "error": str(e), "fallback": "error event"})
